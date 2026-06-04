@@ -85,7 +85,6 @@ export function PortDetailPanel({
                   blocks,
                   assignments.rx[i] ?? null,
                   "rx",
-                  i,
                 )}
                 assignment={assignments.rx[i] ?? null}
                 colorIndex={colorIndex}
@@ -106,7 +105,6 @@ export function PortDetailPanel({
                   blocks,
                   assignments.tx[i] ?? null,
                   "tx",
-                  i,
                 )}
                 assignment={assignments.tx[i] ?? null}
                 colorIndex={colorIndex}

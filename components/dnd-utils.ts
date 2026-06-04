@@ -175,7 +175,6 @@ export function getPortLaneLabel(
   blocks: PortBlock[],
   assignment: QuadModuleRef | null,
   moduleType: ModuleType,
-  laneIndex: number,
 ) {
   if (assignment) {
     const block = blocks.find((item) => item.id === assignment.blockId);
@@ -188,7 +187,7 @@ export function getPortLaneLabel(
     }
   }
 
-  return `${moduleType.toUpperCase()}${laneIndex + 1}`;
+  return moduleType.toUpperCase();
 }
 
 export function findModuleAssignment(
