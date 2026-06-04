@@ -44,16 +44,16 @@ export function PortBlock({
         isDragging ? "scale-[1.02] shadow-xl ring-2 ring-violet-300" : ""
       }`}
     >
-      <div className="flex items-center gap-1">
+      <div className="relative flex items-center justify-center px-7 py-0.5">
         <button
           type="button"
-          className="flex flex-1 cursor-grab items-center gap-2 rounded-lg bg-zinc-100 px-2 py-1.5 text-left active:cursor-grabbing"
+          className="absolute left-0 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-grab items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 active:cursor-grabbing"
           aria-label={`Drag ${block.label}`}
           {...dragHandleProps?.attributes}
           {...dragHandleProps?.listeners}
         >
           <svg
-            className="h-4 w-4 shrink-0 text-zinc-400"
+            className="h-4 w-4 shrink-0"
             viewBox="0 0 16 16"
             fill="currentColor"
             aria-hidden
@@ -65,15 +65,15 @@ export function PortBlock({
             <circle cx="5" cy="12" r="1.2" />
             <circle cx="11" cy="12" r="1.2" />
           </svg>
-          <span className="truncate text-xs font-semibold text-zinc-700">
-            {block.label}
-          </span>
         </button>
+        <h2 className="truncate text-center text-sm font-semibold text-zinc-800">
+          {block.label}
+        </h2>
         {onRemove && (
           <button
             type="button"
             onClick={onRemove}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600"
+            className="absolute right-0 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600"
             aria-label={`Remove ${block.label}`}
           >
             ×
