@@ -1,5 +1,5 @@
-import { PortConfigEditor } from "@/components/PortConfigEditor";
+import { PortConfigEditorClient } from "@/components/PortConfigEditorClient";
 
 export default function Home() {
-  return <PortConfigEditor />;
+  return <PortConfigEditorClient />;
 }

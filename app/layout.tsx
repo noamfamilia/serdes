@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Port Configuration",
+  title: "Interface",
   description: "Graphical tool to configure serdes port blocks",
 };
 

@@ -1,9 +1,16 @@
 import type { DraggableAttributes } from "@dnd-kit/core";
 import type { SyntheticListenerMap } from "@dnd-kit/core/dist/hooks/utilities";
 import { useEffect, useState } from "react";
-import type { PortBlock as PortBlockType } from "@/types/port-config";
+import type {
+  PortBlock as PortBlockType,
+  ModuleType,
+  ModuleLinkHighlight,
+  QuadModuleRef,
+} from "@/types/port-config";
+import { isModuleLinked } from "@/components/dnd-utils";
 import { ChannelBar } from "./ChannelBar";
 import { ClockingDialog } from "./ClockingDialog";
+import { DraggableQuadModule } from "./DraggableQuadModule";
 import { ModuleCard } from "./ModuleCard";
 
 type PortBlockProps = {
@@ -14,6 +21,15 @@ type PortBlockProps = {
     listeners: SyntheticListenerMap | undefined;
   };
   onRemove?: () => void;
+  getModuleColor?: (
+    blockId: string,
+    moduleType: ModuleType,
+    moduleIndex: number,
+  ) => string | undefined;
+  activeLink?: ModuleLinkHighlight | null;
+  onModuleLinkHover?: (module: QuadModuleRef) => void;
+  onModuleLinkLeave?: () => void;
+  onModuleLinkSelect?: (module: QuadModuleRef) => void;
 };
 
 export function PortBlock({
@@ -21,6 +37,11 @@ export function PortBlock({
   isDragging = false,
   dragHandleProps,
   onRemove,
+  getModuleColor,
+  activeLink = null,
+  onModuleLinkHover,
+  onModuleLinkLeave,
+  onModuleLinkSelect,
 }: PortBlockProps) {
   const [clockingOpen, setClockingOpen] = useState(false);
 
@@ -84,27 +105,55 @@ export function PortBlock({
       <ModuleCard label="PMA" variant="config" />
 
       <div className="flex w-full gap-1">
-        {Array.from({ length: 4 }, (_, i) => (
-          <ModuleCard
-            key={`rx-${i}`}
-            label={`RX ${i + 1}`}
-            variant="rx"
-            orientation="vertical"
-          />
-        ))}
+        {Array.from({ length: 4 }, (_, i) => {
+          const moduleRef = {
+            blockId: block.id,
+            moduleType: "rx" as const,
+            moduleIndex: i,
+          };
+
+          return (
+            <DraggableQuadModule
+              key={`rx-${i}`}
+              blockId={block.id}
+              moduleType="rx"
+              moduleIndex={i}
+              colorClassName={getModuleColor?.(block.id, "rx", i)}
+              isAssigned={!!getModuleColor?.(block.id, "rx", i)}
+              isLinked={isModuleLinked(activeLink, moduleRef)}
+              onLinkHover={() => onModuleLinkHover?.(moduleRef)}
+              onLinkLeave={onModuleLinkLeave}
+              onLinkSelect={() => onModuleLinkSelect?.(moduleRef)}
+            />
+          );
+        })}
       </div>
 
       <ChannelBar onClick={() => setClockingOpen(true)} />
 
       <div className="flex w-full gap-1">
-        {Array.from({ length: 4 }, (_, i) => (
-          <ModuleCard
-            key={`tx-${i}`}
-            label={`TX ${i + 1}`}
-            variant="tx"
-            orientation="vertical"
-          />
-        ))}
+        {Array.from({ length: 4 }, (_, i) => {
+          const moduleRef = {
+            blockId: block.id,
+            moduleType: "tx" as const,
+            moduleIndex: i,
+          };
+
+          return (
+            <DraggableQuadModule
+              key={`tx-${i}`}
+              blockId={block.id}
+              moduleType="tx"
+              moduleIndex={i}
+              colorClassName={getModuleColor?.(block.id, "tx", i)}
+              isAssigned={!!getModuleColor?.(block.id, "tx", i)}
+              isLinked={isModuleLinked(activeLink, moduleRef)}
+              onLinkHover={() => onModuleLinkHover?.(moduleRef)}
+              onLinkLeave={onModuleLinkLeave}
+              onLinkSelect={() => onModuleLinkSelect?.(moduleRef)}
+            />
+          );
+        })}
       </div>
       </div>
 

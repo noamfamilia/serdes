@@ -1,31 +1,27 @@
 "use client";
 
 import {
-  DndContext,
-  DragEndEvent,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import {
   SortableContext,
-  arrayMove,
   horizontalListSortingStrategy,
-  sortableKeyboardCoordinates,
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import type { PortBlock } from "@/types/port-config";
+import type { PortBlock, ModuleType, ModuleLinkHighlight, QuadModuleRef } from "@/types/port-config";
 import { PortBlock as PortBlockComponent } from "./PortBlock";
 
 type BlockCanvasProps = {
   blocks: PortBlock[];
-  onReorder: (blocks: PortBlock[]) => void;
   onRemove: (id: string) => void;
   onAddBlock: () => void;
+  getModuleColor?: (
+    blockId: string,
+    moduleType: ModuleType,
+    moduleIndex: number,
+  ) => string | undefined;
+  activeLink?: ModuleLinkHighlight | null;
+  onModuleLinkHover?: (module: QuadModuleRef) => void;
+  onModuleLinkLeave?: () => void;
+  onModuleLinkSelect?: (module: QuadModuleRef) => void;
 };
 
 function AddBlockButton({ onClick }: { onClick: () => void }) {
@@ -74,9 +70,19 @@ function AddBlockSlot({
 function SortablePortBlock({
   block,
   onRemove,
+  getModuleColor,
+  activeLink,
+  onModuleLinkHover,
+  onModuleLinkLeave,
+  onModuleLinkSelect,
 }: {
   block: PortBlock;
   onRemove: (id: string) => void;
+  getModuleColor?: BlockCanvasProps["getModuleColor"];
+  activeLink?: ModuleLinkHighlight | null;
+  onModuleLinkHover?: (module: QuadModuleRef) => void;
+  onModuleLinkLeave?: () => void;
+  onModuleLinkSelect?: (module: QuadModuleRef) => void;
 }) {
   const {
     attributes,
@@ -99,6 +105,11 @@ function SortablePortBlock({
         isDragging={isDragging}
         dragHandleProps={{ attributes, listeners }}
         onRemove={() => onRemove(block.id)}
+        getModuleColor={getModuleColor}
+        activeLink={activeLink}
+        onModuleLinkHover={onModuleLinkHover}
+        onModuleLinkLeave={onModuleLinkLeave}
+        onModuleLinkSelect={onModuleLinkSelect}
       />
     </div>
   );
@@ -106,50 +117,34 @@ function SortablePortBlock({
 
 export function BlockCanvas({
   blocks,
-  onReorder,
   onRemove,
   onAddBlock,
+  getModuleColor,
+  activeLink,
+  onModuleLinkHover,
+  onModuleLinkLeave,
+  onModuleLinkSelect,
 }: BlockCanvasProps) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = blocks.findIndex((b) => b.id === active.id);
-    const newIndex = blocks.findIndex((b) => b.id === over.id);
-    onReorder(arrayMove(blocks, oldIndex, newIndex));
-  }
-
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      modifiers={[restrictToHorizontalAxis]}
-      onDragEnd={handleDragEnd}
+    <SortableContext
+      items={blocks.map((b) => b.id)}
+      strategy={horizontalListSortingStrategy}
     >
-      <SortableContext
-        items={blocks.map((b) => b.id)}
-        strategy={horizontalListSortingStrategy}
-      >
-        <div className="flex w-max max-w-full items-stretch gap-4 overflow-x-auto p-1 pb-2">
-          {blocks.map((block) => (
-            <SortablePortBlock
-              key={block.id}
-              block={block}
-              onRemove={onRemove}
-            />
-          ))}
-          <AddBlockSlot onClick={onAddBlock} solo={blocks.length === 0} />
-        </div>
-      </SortableContext>
-    </DndContext>
+      <div className="flex w-max max-w-full items-stretch gap-4 overflow-x-auto p-1 pb-2">
+        {blocks.map((block) => (
+          <SortablePortBlock
+            key={block.id}
+            block={block}
+            onRemove={onRemove}
+            getModuleColor={getModuleColor}
+            activeLink={activeLink}
+            onModuleLinkHover={onModuleLinkHover}
+            onModuleLinkLeave={onModuleLinkLeave}
+            onModuleLinkSelect={onModuleLinkSelect}
+          />
+        ))}
+        <AddBlockSlot onClick={onAddBlock} solo={blocks.length === 0} />
+      </div>
+    </SortableContext>
   );
 }
