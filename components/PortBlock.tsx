@@ -20,9 +20,19 @@ type PortBlockProps = {
     moduleType: ModuleType,
     moduleIndex: number,
   ) => number | undefined;
+  getModuleLaneAssignment?: (
+    blockId: string,
+    moduleType: ModuleType,
+    moduleIndex: number,
+  ) => { portId: string; laneIndex: number } | undefined;
   activeLink?: ModuleLinkHighlight | null;
   groupMode?: boolean;
   groupModuleKeys?: Set<string>;
+  activeGroupDrag?: {
+    portId: string;
+    sourceLane: number;
+    isGroup: boolean;
+  } | null;
   onModuleLinkHover?: (module: QuadModuleRef) => void;
   onModuleLinkLeave?: () => void;
   onModuleLinkSelect?: (module: QuadModuleRef) => void;
@@ -31,9 +41,11 @@ type PortBlockProps = {
 export function PortBlock({
   block,
   getModulePortColorIndex,
+  getModuleLaneAssignment,
   activeLink = null,
   groupMode = false,
   groupModuleKeys,
+  activeGroupDrag = null,
   onModuleLinkHover,
   onModuleLinkLeave,
   onModuleLinkSelect,
@@ -60,6 +72,11 @@ export function PortBlock({
       moduleType,
       moduleIndex,
     );
+    const laneAssignment = getModuleLaneAssignment?.(
+      block.id,
+      moduleType,
+      moduleIndex,
+    );
     const moduleRef = { blockId: block.id, moduleType, moduleIndex };
 
     return (
@@ -71,8 +88,11 @@ export function PortBlock({
         moduleIndex={moduleIndex}
         isAssigned={portColorIndex !== undefined}
         portColorIndex={portColorIndex}
+        assignedPortId={laneAssignment?.portId}
+        assignedLaneIndex={laneAssignment?.laneIndex}
         isLinked={isModuleLinked(activeLink, moduleRef)}
         groupMode={groupMode}
+        activeGroupDrag={activeGroupDrag}
         isInGroupDrag={groupModuleKeys?.has(moduleRefKey(moduleRef))}
         onLinkHover={onModuleLinkHover}
         onLinkLeave={onModuleLinkLeave}

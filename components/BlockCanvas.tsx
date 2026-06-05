@@ -10,9 +10,19 @@ type BlockCanvasProps = {
     moduleType: ModuleType,
     moduleIndex: number,
   ) => number | undefined;
+  getModuleLaneAssignment?: (
+    blockId: string,
+    moduleType: ModuleType,
+    moduleIndex: number,
+  ) => { portId: string; laneIndex: number } | undefined;
   activeLink?: ModuleLinkHighlight | null;
   groupMode?: boolean;
   groupModuleKeys?: Set<string>;
+  activeGroupDrag?: {
+    portId: string;
+    sourceLane: number;
+    isGroup: boolean;
+  } | null;
   onModuleLinkHover?: (module: QuadModuleRef) => void;
   onModuleLinkLeave?: () => void;
   onModuleLinkSelect?: (module: QuadModuleRef) => void;
@@ -21,9 +31,11 @@ type BlockCanvasProps = {
 export function BlockCanvas({
   blocks,
   getModulePortColorIndex,
+  getModuleLaneAssignment,
   activeLink,
   groupMode,
   groupModuleKeys,
+  activeGroupDrag,
   onModuleLinkHover,
   onModuleLinkLeave,
   onModuleLinkSelect,
@@ -38,9 +50,11 @@ export function BlockCanvas({
           <PortBlockComponent
             block={block}
             getModulePortColorIndex={getModulePortColorIndex}
+            getModuleLaneAssignment={getModuleLaneAssignment}
             activeLink={activeLink}
             groupMode={groupMode}
             groupModuleKeys={groupModuleKeys}
+            activeGroupDrag={activeGroupDrag}
             onModuleLinkHover={onModuleLinkHover}
             onModuleLinkLeave={onModuleLinkLeave}
             onModuleLinkSelect={onModuleLinkSelect}
@@ -52,9 +66,11 @@ export function BlockCanvas({
           <PortBlockComponent
             block={placeholderBlock}
             getModulePortColorIndex={getModulePortColorIndex}
+            getModuleLaneAssignment={getModuleLaneAssignment}
             activeLink={activeLink}
             groupMode={groupMode}
             groupModuleKeys={groupModuleKeys}
+            activeGroupDrag={activeGroupDrag}
             onModuleLinkHover={onModuleLinkHover}
             onModuleLinkLeave={onModuleLinkLeave}
             onModuleLinkSelect={onModuleLinkSelect}

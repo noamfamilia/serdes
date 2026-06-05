@@ -9,6 +9,7 @@ import {
   useSensors,
   type DragCancelEvent,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +25,11 @@ import { ModuleCard } from "@/components/ModuleCard";
 import { getPortColor } from "@/components/port-colors";
 import { QUAD_MODULE_FIXED_WIDTH_CLASS } from "@/components/quad-module-dimensions";
 import { PortDetailPanel } from "@/components/PortDetailPanel";
-import { portLaneCollision } from "@/components/port-lane-collision";
+import {
+  findClosestQuadSlotAtPointer,
+  quadSlotCollision,
+  resolveQuadSlotFromCollisions,
+} from "@/components/quad-slot-collision";
 import { PortMenuPanel, type PortMenuItem } from "@/components/PortMenuPanel";
 import { PortsPanel } from "@/components/PortsPanel";
 import {
@@ -45,8 +50,8 @@ import {
   highlightFromModule,
   highlightsMatch,
   moduleRefKey,
-  parsePortLaneId,
   parseQuadModuleId,
+  parseQuadSlotId,
   removeAssignmentsForPort,
   shiftPortAssignments,
   swapModuleLanes,
@@ -79,6 +84,7 @@ type ActiveModuleDrag = {
 };
 
 const MODULES_PER_QUAD = 4;
+const MICRO_DRAG_CANCEL_THRESHOLD = 12;
 
 export function PortConfigEditor() {
   const [blocks, setBlocks] = useState<PortBlock[]>(createInitialBlocks);
@@ -114,6 +120,10 @@ export function PortConfigEditor() {
   });
   const lastOverRef = useRef<string | null>(null);
   const lastLoggedOverRef = useRef<string | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerListenerRef = useRef<((event: PointerEvent) => void) | null>(
+    null,
+  );
   const dragDiagnosticLogRef = useRef<DropDiagnosticEntry[]>([]);
 
   useEffect(() => {
@@ -147,6 +157,41 @@ export function PortConfigEditor() {
     dragDiagnosticLogRef.current = [];
     setDiagnosticEntries([]);
     setDiagnosticPanelOpen(false);
+  }
+
+  function startPointerTracking() {
+    stopPointerTracking();
+    const listener = (event: PointerEvent) => {
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    };
+    pointerListenerRef.current = listener;
+    window.addEventListener("pointermove", listener);
+  }
+
+  function stopPointerTracking() {
+    const listener = pointerListenerRef.current;
+    if (listener) {
+      window.removeEventListener("pointermove", listener);
+      pointerListenerRef.current = null;
+    }
+    lastPointerRef.current = null;
+  }
+
+  function rememberQuadSlotHover(
+    overId: string | null,
+    collisions: DragOverEvent["collisions"] | DragMoveEvent["collisions"],
+  ) {
+    const slotId = resolveQuadSlotFromCollisions(overId, collisions);
+    if (slotId) {
+      lastOverRef.current = slotId;
+      if (slotId !== lastLoggedOverRef.current) {
+        lastLoggedOverRef.current = slotId;
+        appendDragDiagnostic("drag_over", "Pointer over quad slot", {
+          overId: slotId,
+          collisions: collisions?.map((collision) => String(collision.id)),
+        });
+      }
+    }
   }
 
   const sensors = useSensors(
@@ -400,6 +445,7 @@ export function PortConfigEditor() {
     dragContextRef.current.activeModuleDrag = dragState;
     lastOverRef.current = null;
     lastLoggedOverRef.current = null;
+    startPointerTracking();
     dragDiagnosticLogRef.current = [];
     appendDragDiagnostic("drag_start", "Drag started", {
       activeId: String(event.active.id),
@@ -416,18 +462,18 @@ export function PortConfigEditor() {
     });
   }
 
+  function handleDragMove(event: DragMoveEvent) {
+    rememberQuadSlotHover(
+      event.over ? String(event.over.id) : null,
+      event.collisions,
+    );
+  }
+
   function handleDragOver(event: DragOverEvent) {
-    const overId = event.over ? String(event.over.id) : null;
-    if (overId?.startsWith("port-lane:")) {
-      lastOverRef.current = overId;
-      if (overId !== lastLoggedOverRef.current) {
-        lastLoggedOverRef.current = overId;
-        appendDragDiagnostic("drag_over", "Pointer over port lane", {
-          overId,
-          collisions: event.collisions?.map((collision) => String(collision.id)),
-        });
-      }
-    }
+    rememberQuadSlotHover(
+      event.over ? String(event.over.id) : null,
+      event.collisions,
+    );
   }
 
   function handleDragCancel(event: DragCancelEvent) {
@@ -439,6 +485,7 @@ export function PortConfigEditor() {
     setActiveModuleDrag(null);
     lastOverRef.current = null;
     lastLoggedOverRef.current = null;
+    stopPointerTracking();
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -455,18 +502,27 @@ export function PortConfigEditor() {
 
     const { active, collisions, delta } = event;
     const eventOverId = event.over ? String(event.over.id) : null;
-    const collisionLaneIds =
+    const collisionSlotIds =
       collisions?.map((collision) => String(collision.id)) ?? [];
-    const collisionLaneId = collisionLaneIds.find((id) =>
-      id.startsWith("port-lane:"),
+    const collisionSlotId = resolveQuadSlotFromCollisions(
+      eventOverId,
+      collisions,
     );
     const lastOverBeforeClear = lastOverRef.current;
+    const pointerFallback =
+      dragState && lastPointerRef.current
+        ? findClosestQuadSlotAtPointer(
+            lastPointerRef.current,
+            dragState.anchor.moduleType,
+          )
+        : null;
     const overId =
-      (eventOverId?.startsWith("port-lane:") ? eventOverId : null) ??
-      collisionLaneId ??
-      lastOverBeforeClear;
+      collisionSlotId ?? lastOverBeforeClear ?? pointerFallback;
+    const microDrag =
+      Math.hypot(delta.x, delta.y) < MICRO_DRAG_CANCEL_THRESHOLD;
     lastOverRef.current = null;
     lastLoggedOverRef.current = null;
+    stopPointerTracking();
 
     let applied = false;
     let failureReason: string | null = null;
@@ -474,11 +530,13 @@ export function PortConfigEditor() {
     appendDragDiagnostic("drag_end", "Drag ended", {
       activeId: String(active.id),
       eventOverId,
-      collisionLaneIds,
-      collisionLaneId: collisionLaneId ?? null,
+      collisionSlotIds,
+      collisionSlotId: collisionSlotId ?? null,
       lastOverRef: lastOverBeforeClear,
+      pointerFallback,
       resolvedOverId: overId,
       delta,
+      microDrag,
       groupMode: currentGroupMode,
       selectedPortId: currentSelectedPortId,
       layoutPanelOpen: currentLayoutPanelOpen,
@@ -493,9 +551,13 @@ export function PortConfigEditor() {
     }
 
     if (!overId) {
+      if (microDrag) {
+        commitDragDiagnostics(false, applied);
+        return;
+      }
       failureReason = "no_drop_target";
       appendDragDiagnostic("reject", failureReason, {
-        hint: "No port-lane resolved from event.over, collisions, or lastOverRef",
+        hint: "No quad slot resolved from event.over, collisions, lastOverRef, or pointer fallback",
       });
       commitDragDiagnostics(true, applied);
       return;
@@ -511,20 +573,24 @@ export function PortConfigEditor() {
       return;
     }
 
-    const lane = parsePortLaneId(overId);
-    if (!lane) {
-      failureReason = "invalid_port_lane_id";
+    const targetRef = parseQuadSlotId(overId);
+    if (!targetRef) {
+      failureReason = "invalid_quad_slot_id";
       appendDragDiagnostic("reject", failureReason, { overId });
       commitDragDiagnostics(true, applied);
       return;
     }
 
-    const port = currentPorts.find((item) => item.id === lane.portId);
-    if (!port) {
-      failureReason = "port_not_found";
+    if (moduleRefKey(moduleRef) === moduleRefKey(targetRef)) {
+      commitDragDiagnostics(false, applied);
+      return;
+    }
+
+    if (moduleRef.moduleType !== targetRef.moduleType) {
+      failureReason = "module_type_mismatch";
       appendDragDiagnostic("reject", failureReason, {
-        lanePortId: lane.portId,
-        knownPortIds: currentPorts.map((item) => item.id),
+        draggedType: moduleRef.moduleType,
+        targetSlotType: targetRef.moduleType,
       });
       commitDragDiagnostics(true, applied);
       return;
@@ -538,36 +604,64 @@ export function PortConfigEditor() {
       return;
     }
 
-    if (sourceAssignment.portId !== lane.portId) {
+    const port = currentPorts.find((item) => item.id === sourceAssignment.portId);
+    if (!port) {
+      failureReason = "port_not_found";
+      appendDragDiagnostic("reject", failureReason, {
+        sourcePortId: sourceAssignment.portId,
+        knownPortIds: currentPorts.map((item) => item.id),
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
+
+    const targetAssignment = findModuleAssignment(
+      currentAssignments,
+      currentPorts,
+      targetRef,
+    );
+
+    if (!targetAssignment) {
+      applyAssignmentsAndBlocks(
+        assignModuleToLane(
+          unlinkModule(currentAssignments, moduleRef),
+          port,
+          sourceAssignment.moduleType,
+          sourceAssignment.laneIndex,
+          targetRef,
+        ),
+      );
+      applied = true;
+      appendDragDiagnostic("success", "Assigned canvas module to port lane", {
+        sourceLane: sourceAssignment.laneIndex,
+        targetRef,
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
+
+    if (targetAssignment.portId !== sourceAssignment.portId) {
       failureReason = "port_mismatch";
       appendDragDiagnostic("reject", failureReason, {
         sourcePortId: sourceAssignment.portId,
-        targetPortId: lane.portId,
+        targetPortId: targetAssignment.portId,
         selectedPortId: currentSelectedPortId,
       });
       commitDragDiagnostics(true, applied);
       return;
     }
 
-    if (moduleRef.moduleType !== lane.moduleType) {
-      failureReason = "module_type_mismatch";
-      appendDragDiagnostic("reject", failureReason, {
-        draggedType: moduleRef.moduleType,
-        targetLaneType: lane.moduleType,
-      });
-      commitDragDiagnostics(true, applied);
-      return;
-    }
+    const lane = {
+      portId: targetAssignment.portId,
+      moduleType: targetAssignment.moduleType,
+      laneIndex: targetAssignment.laneIndex,
+    };
 
     const isSameLane =
       sourceAssignment.moduleType === lane.moduleType &&
       sourceAssignment.laneIndex === lane.laneIndex;
     if (isSameLane) {
-      failureReason = "same_lane";
-      appendDragDiagnostic("reject", failureReason, {
-        laneIndex: lane.laneIndex,
-      });
-      commitDragDiagnostics(true, applied);
+      commitDragDiagnostics(false, applied);
       return;
     }
 
@@ -575,6 +669,7 @@ export function PortConfigEditor() {
     const targetModule = portLanes[lane.moduleType][lane.laneIndex];
 
     appendDragDiagnostic("target", "Resolved drop target", {
+      targetRef,
       lane,
       targetModule,
       sourceAssignment,
@@ -684,6 +779,22 @@ export function PortConfigEditor() {
     [portAssignments, ports],
   );
 
+  const getModuleLaneAssignment = useCallback(
+    (blockId: string, moduleType: ModuleType, moduleIndex: number) => {
+      const assignment = findModuleAssignment(portAssignments, ports, {
+        blockId,
+        moduleType,
+        moduleIndex,
+      });
+      if (!assignment) return undefined;
+      return {
+        portId: assignment.portId,
+        laneIndex: assignment.laneIndex,
+      };
+    },
+    [portAssignments, ports],
+  );
+
   const groupModuleKeys = useMemo(() => {
     if (!activeModuleDrag?.isGroup) return new Set<string>();
     return new Set(activeModuleDrag.groupModules.map(moduleRefKey));
@@ -703,8 +814,9 @@ export function PortConfigEditor() {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={portLaneCollision}
+      collisionDetection={quadSlotCollision}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragOver={handleDragOver}
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
@@ -734,7 +846,6 @@ export function PortConfigEditor() {
                 assignments={selectedPortAssignments}
                 activeLink={activeLink}
                 groupMode={groupMode}
-                activeGroupDrag={activeGroupDrag}
                 onGroupModeChange={setGroupMode}
                 onLinkHover={handleLinkHover}
                 onLinkSelect={handleLinkSelect}
@@ -747,9 +858,11 @@ export function PortConfigEditor() {
             <BlockCanvas
               blocks={blocks}
               getModulePortColorIndex={getModulePortColorIndex}
+              getModuleLaneAssignment={getModuleLaneAssignment}
               activeLink={activeLink}
               groupMode={groupMode}
               groupModuleKeys={groupModuleKeys}
+              activeGroupDrag={activeGroupDrag}
               onModuleLinkHover={handleModuleLinkHover}
               onModuleLinkLeave={handleModuleLinkLeave}
               onModuleLinkSelect={handleModuleLinkSelect}

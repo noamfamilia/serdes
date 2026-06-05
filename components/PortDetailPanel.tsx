@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { getPortLaneLabel } from "@/components/dnd-utils";
-import { DroppablePortLane } from "@/components/DroppablePortLane";
+import { PortLaneDisplay } from "@/components/PortLaneDisplay";
 import {
   getPortLaneCount,
   type ModuleLinkHighlight,
@@ -18,11 +18,6 @@ type PortDetailPanelProps = {
   assignments: PortLaneAssignments;
   activeLink: ModuleLinkHighlight | null;
   groupMode: boolean;
-  activeGroupDrag: {
-    portId: string;
-    sourceLane: number;
-    isGroup: boolean;
-  } | null;
   onGroupModeChange: (groupMode: boolean) => void;
   onLinkHover: (highlight: ModuleLinkHighlight | null) => void;
   onLinkSelect: (highlight: ModuleLinkHighlight) => void;
@@ -37,7 +32,6 @@ export function PortDetailPanel({
   assignments,
   activeLink,
   groupMode,
-  activeGroupDrag,
   onGroupModeChange,
   onLinkHover,
   onLinkSelect,
@@ -81,7 +75,7 @@ export function PortDetailPanel({
         <div className="flex w-max shrink-0 flex-col gap-2">
           <div className="flex gap-1">
             {Array.from({ length: laneCount }, (_, i) => (
-              <DroppablePortLane
+              <PortLaneDisplay
                 key={`rx-${i}`}
                 portId={port.id}
                 moduleType="rx"
@@ -94,8 +88,6 @@ export function PortDetailPanel({
                 assignment={assignments.rx[i] ?? null}
                 colorIndex={colorIndex}
                 activeLink={activeLink}
-                groupMode={groupMode}
-                activeGroupDrag={activeGroupDrag}
                 onLinkHover={onLinkHover}
                 onLinkSelect={onLinkSelect}
               />
@@ -103,7 +95,7 @@ export function PortDetailPanel({
           </div>
           <div className="flex gap-1">
             {Array.from({ length: laneCount }, (_, i) => (
-              <DroppablePortLane
+              <PortLaneDisplay
                 key={`tx-${i}`}
                 portId={port.id}
                 moduleType="tx"
@@ -116,8 +108,6 @@ export function PortDetailPanel({
                 assignment={assignments.tx[i] ?? null}
                 colorIndex={colorIndex}
                 activeLink={activeLink}
-                groupMode={groupMode}
-                activeGroupDrag={activeGroupDrag}
                 onLinkHover={onLinkHover}
                 onLinkSelect={onLinkSelect}
               />
