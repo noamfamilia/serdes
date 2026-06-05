@@ -42,15 +42,17 @@ export function formatDiagnosticLog(entries: DropDiagnosticEntry[]): string {
 
   const summary = getFailureSummary(entries);
 
-  return `${summary}\n\n--- full log ---\n\n${entries
+  const logPart = entries
     .map((entry) => {
       const header = `[${entry.timestamp}] ${entry.phase}: ${entry.message}`;
       if (!entry.data || Object.keys(entry.data).length === 0) {
         return header;
       }
-      return `${header}\n${JSON.stringify(entry.data, null, 2)}`;
+      return `${header} ${JSON.stringify(entry.data)}`;
     })
-    .join("\n\n")}`;
+    .join(" | ");
+
+  return `${summary} | --- full log --- | ${logPart}`;
 }
 
 export function summarizePortAssignments(
