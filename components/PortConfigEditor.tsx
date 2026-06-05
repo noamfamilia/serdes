@@ -13,6 +13,12 @@ import {
 } from "@dnd-kit/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockCanvas } from "@/components/BlockCanvas";
+import { DropDiagnosticPanel } from "@/components/DropDiagnosticPanel";
+import {
+  createDiagnosticEntry,
+  summarizePortAssignments,
+  type DropDiagnosticEntry,
+} from "@/components/drop-diagnostics";
 import { GroupDragOverlay } from "@/components/GroupDragOverlay";
 import { ModuleCard } from "@/components/ModuleCard";
 import { getPortColor } from "@/components/port-colors";
@@ -91,6 +97,10 @@ export function PortConfigEditor() {
   const [selectedLink, setSelectedLink] = useState<ModuleLinkHighlight | null>(
     null,
   );
+  const [diagnosticEntries, setDiagnosticEntries] = useState<
+    DropDiagnosticEntry[]
+  >([]);
+  const [diagnosticPanelOpen, setDiagnosticPanelOpen] = useState(false);
 
   const activeLink = hoveredLink ?? selectedLink;
 
@@ -98,15 +108,46 @@ export function PortConfigEditor() {
     portAssignments,
     ports,
     groupMode,
+    selectedPortId,
+    layoutPanelOpen,
     activeModuleDrag: null as ActiveModuleDrag | null,
   });
   const lastOverRef = useRef<string | null>(null);
+  const lastLoggedOverRef = useRef<string | null>(null);
+  const dragDiagnosticLogRef = useRef<DropDiagnosticEntry[]>([]);
 
   useEffect(() => {
     dragContextRef.current.portAssignments = portAssignments;
     dragContextRef.current.ports = ports;
     dragContextRef.current.groupMode = groupMode;
-  }, [portAssignments, ports, groupMode]);
+    dragContextRef.current.selectedPortId = selectedPortId;
+    dragContextRef.current.layoutPanelOpen = layoutPanelOpen;
+  }, [portAssignments, ports, groupMode, selectedPortId, layoutPanelOpen]);
+
+  function appendDragDiagnostic(
+    phase: string,
+    message: string,
+    data?: Record<string, unknown>,
+  ) {
+    dragDiagnosticLogRef.current.push(
+      createDiagnosticEntry(phase, message, data),
+    );
+  }
+
+  function commitDragDiagnostics(openOnFailure: boolean, applied: boolean) {
+    const entries = [...dragDiagnosticLogRef.current];
+    dragDiagnosticLogRef.current = [];
+    setDiagnosticEntries(entries);
+    if (openOnFailure && !applied) {
+      setDiagnosticPanelOpen(true);
+    }
+  }
+
+  function clearDiagnostics() {
+    dragDiagnosticLogRef.current = [];
+    setDiagnosticEntries([]);
+    setDiagnosticPanelOpen(false);
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -358,66 +399,193 @@ export function PortConfigEditor() {
     setActiveModuleDrag(dragState);
     dragContextRef.current.activeModuleDrag = dragState;
     lastOverRef.current = null;
+    lastLoggedOverRef.current = null;
+    dragDiagnosticLogRef.current = [];
+    appendDragDiagnostic("drag_start", "Drag started", {
+      activeId: String(event.active.id),
+      anchor,
+      sourceAssignment: dragState.sourceAssignment,
+      groupMode: useGroupMode,
+      isGroup,
+      portId,
+      sourceLane,
+      groupModules,
+      selectedPortId,
+      layoutPanelOpen,
+      ports: ports.map((port) => ({ id: port.id, speed: port.speed })),
+      assignments: summarizePortAssignments(portAssignments),
+    });
   }
 
   function handleDragOver(event: DragOverEvent) {
     const overId = event.over ? String(event.over.id) : null;
     if (overId?.startsWith("port-lane:")) {
       lastOverRef.current = overId;
+      if (overId !== lastLoggedOverRef.current) {
+        lastLoggedOverRef.current = overId;
+        appendDragDiagnostic("drag_over", "Pointer over port lane", {
+          overId,
+          collisions: event.collisions?.map((collision) => String(collision.id)),
+        });
+      }
     }
   }
 
-  function handleDragCancel(_event: DragCancelEvent) {
+  function handleDragCancel(event: DragCancelEvent) {
+    appendDragDiagnostic("drag_cancel", "Drag canceled", {
+      activeId: String(event.active.id),
+    });
+    commitDragDiagnostics(false, true);
     dragContextRef.current.activeModuleDrag = null;
     setActiveModuleDrag(null);
     lastOverRef.current = null;
+    lastLoggedOverRef.current = null;
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    const { portAssignments: currentAssignments, ports: currentPorts, groupMode: currentGroupMode, activeModuleDrag: dragState } =
-      dragContextRef.current;
+    const {
+      portAssignments: currentAssignments,
+      ports: currentPorts,
+      groupMode: currentGroupMode,
+      selectedPortId: currentSelectedPortId,
+      layoutPanelOpen: currentLayoutPanelOpen,
+      activeModuleDrag: dragState,
+    } = dragContextRef.current;
     dragContextRef.current.activeModuleDrag = null;
     setActiveModuleDrag(null);
 
-    const { active, collisions } = event;
+    const { active, collisions, delta } = event;
     const eventOverId = event.over ? String(event.over.id) : null;
-    const collisionLaneId = collisions
-      ?.map((collision) => String(collision.id))
-      .find((id) => id.startsWith("port-lane:"));
+    const collisionLaneIds =
+      collisions?.map((collision) => String(collision.id)) ?? [];
+    const collisionLaneId = collisionLaneIds.find((id) =>
+      id.startsWith("port-lane:"),
+    );
+    const lastOverBeforeClear = lastOverRef.current;
     const overId =
       (eventOverId?.startsWith("port-lane:") ? eventOverId : null) ??
       collisionLaneId ??
-      lastOverRef.current;
+      lastOverBeforeClear;
     lastOverRef.current = null;
+    lastLoggedOverRef.current = null;
 
-    if (!overId) return;
+    let applied = false;
+    let failureReason: string | null = null;
+
+    appendDragDiagnostic("drag_end", "Drag ended", {
+      activeId: String(active.id),
+      eventOverId,
+      collisionLaneIds,
+      collisionLaneId: collisionLaneId ?? null,
+      lastOverRef: lastOverBeforeClear,
+      resolvedOverId: overId,
+      delta,
+      groupMode: currentGroupMode,
+      selectedPortId: currentSelectedPortId,
+      layoutPanelOpen: currentLayoutPanelOpen,
+      dragState,
+      assignments: summarizePortAssignments(currentAssignments),
+    });
+
+    if (!dragState) {
+      appendDragDiagnostic("reject", "No drag state captured on drag end");
+      commitDragDiagnostics(false, true);
+      return;
+    }
+
+    if (!overId) {
+      failureReason = "no_drop_target";
+      appendDragDiagnostic("reject", failureReason, {
+        hint: "No port-lane resolved from event.over, collisions, or lastOverRef",
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
 
     const moduleRef = parseQuadModuleId(String(active.id));
-    if (!moduleRef) return;
+    if (!moduleRef) {
+      failureReason = "invalid_active_id";
+      appendDragDiagnostic("reject", failureReason, {
+        activeId: String(active.id),
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
 
     const lane = parsePortLaneId(overId);
-    if (!lane) return;
+    if (!lane) {
+      failureReason = "invalid_port_lane_id";
+      appendDragDiagnostic("reject", failureReason, { overId });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
 
     const port = currentPorts.find((item) => item.id === lane.portId);
-    if (!port) return;
+    if (!port) {
+      failureReason = "port_not_found";
+      appendDragDiagnostic("reject", failureReason, {
+        lanePortId: lane.portId,
+        knownPortIds: currentPorts.map((item) => item.id),
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
 
-    const sourceAssignment = dragState?.sourceAssignment;
-    if (!sourceAssignment) return;
+    const sourceAssignment = dragState.sourceAssignment;
+    if (!sourceAssignment) {
+      failureReason = "missing_source_assignment";
+      appendDragDiagnostic("reject", failureReason);
+      commitDragDiagnostics(true, applied);
+      return;
+    }
 
-    if (sourceAssignment.portId !== lane.portId) return;
-    if (moduleRef.moduleType !== lane.moduleType) return;
+    if (sourceAssignment.portId !== lane.portId) {
+      failureReason = "port_mismatch";
+      appendDragDiagnostic("reject", failureReason, {
+        sourcePortId: sourceAssignment.portId,
+        targetPortId: lane.portId,
+        selectedPortId: currentSelectedPortId,
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
+
+    if (moduleRef.moduleType !== lane.moduleType) {
+      failureReason = "module_type_mismatch";
+      appendDragDiagnostic("reject", failureReason, {
+        draggedType: moduleRef.moduleType,
+        targetLaneType: lane.moduleType,
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
 
     const isSameLane =
       sourceAssignment.moduleType === lane.moduleType &&
       sourceAssignment.laneIndex === lane.laneIndex;
-    if (isSameLane) return;
+    if (isSameLane) {
+      failureReason = "same_lane";
+      appendDragDiagnostic("reject", failureReason, {
+        laneIndex: lane.laneIndex,
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
 
     const portLanes = ensurePortAssignments(currentAssignments, port)[port.id];
     const targetModule = portLanes[lane.moduleType][lane.laneIndex];
 
+    appendDragDiagnostic("target", "Resolved drop target", {
+      lane,
+      targetModule,
+      sourceAssignment,
+      portSpeed: port.speed,
+      portLanes: summarizePortAssignments({ [port.id]: portLanes })[port.id],
+    });
+
     if (
       currentGroupMode &&
-      dragState?.isGroup &&
+      dragState.isGroup &&
       dragState.portId === lane.portId &&
       dragState.sourceLane !== undefined &&
       dragState.sourceLane !== lane.laneIndex
@@ -430,7 +598,19 @@ export function PortConfigEditor() {
       );
       if (shifted) {
         applyAssignmentsAndBlocks(shifted);
+        applied = true;
+        appendDragDiagnostic("success", "Group shift applied", {
+          sourceLane: dragState.sourceLane,
+          targetLane: lane.laneIndex,
+        });
+      } else {
+        failureReason = "group_shift_failed";
+        appendDragDiagnostic("reject", failureReason, {
+          sourceLane: dragState.sourceLane,
+          targetLane: lane.laneIndex,
+        });
       }
+      commitDragDiagnostics(true, applied);
       return;
     }
 
@@ -444,6 +624,11 @@ export function PortConfigEditor() {
           moduleRef,
         ),
       );
+      applied = true;
+      appendDragDiagnostic("success", "Moved module to empty lane", {
+        targetLane: lane.laneIndex,
+      });
+      commitDragDiagnostics(true, applied);
       return;
     }
 
@@ -460,7 +645,23 @@ export function PortConfigEditor() {
           lane.laneIndex,
         ),
       );
+      applied = true;
+      appendDragDiagnostic("success", "Swapped modules between lanes", {
+        sourceLane: sourceAssignment.laneIndex,
+        targetLane: lane.laneIndex,
+        targetModule,
+      });
+      commitDragDiagnostics(true, applied);
+      return;
     }
+
+    failureReason = "target_occupied_no_swap";
+    appendDragDiagnostic("reject", failureReason, {
+      targetModule,
+      groupMode: currentGroupMode,
+      hint: "Target lane occupied and swap/group rules did not apply",
+    });
+    commitDragDiagnostics(true, applied);
   }
 
   const selectedPort = ports.find((port) => port.id === selectedPortId) ?? null;
@@ -583,6 +784,14 @@ export function PortConfigEditor() {
           )
         ) : null}
       </DragOverlay>
+
+      {diagnosticPanelOpen && (
+        <DropDiagnosticPanel
+          entries={diagnosticEntries}
+          onClear={clearDiagnostics}
+          onClose={() => setDiagnosticPanelOpen(false)}
+        />
+      )}
     </DndContext>
   );
 }
