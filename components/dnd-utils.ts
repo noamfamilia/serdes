@@ -59,7 +59,7 @@ export function parseQuadSlotId(id: string): QuadModuleRef | null {
 export function parsePortLaneId(
   id: string,
 ): { portId: string; moduleType: ModuleType; laneIndex: number } | null {
-  const match = /^port-lane:([^:]+):(rx|tx):(\d+)$/.exec(id);
+  const match = /^port-lane:(.+):(rx|tx):(\d+)$/.exec(id);
   if (!match) return null;
 
   return {
@@ -71,26 +71,6 @@ export function parsePortLaneId(
 
 export function moduleRefKey(ref: QuadModuleRef) {
   return `${ref.blockId}:${ref.moduleType}:${ref.moduleIndex}`;
-}
-
-export function getDragHiddenModuleKeys(
-  anchor: QuadModuleRef | null | undefined,
-  groupModules: QuadModuleRef[] | null | undefined,
-  isGroup: boolean,
-): Set<string> {
-  if (!anchor) return new Set();
-  if (isGroup && groupModules?.length) {
-    return new Set(groupModules.map(moduleRefKey));
-  }
-  return new Set([moduleRefKey(anchor)]);
-}
-
-export function assignmentHiddenDuringDrag(
-  assignment: QuadModuleRef | null,
-  hiddenKeys: Set<string>,
-): QuadModuleRef | null {
-  if (!assignment) return null;
-  return hiddenKeys.has(moduleRefKey(assignment)) ? null : assignment;
 }
 
 export function createPortAssignments(port: Port): PortAssignments[string] {

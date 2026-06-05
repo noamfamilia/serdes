@@ -4,8 +4,6 @@ import type { MouseEvent } from "react";
 import { useDndContext, useDroppable } from "@dnd-kit/core";
 import { getModuleLinkColor } from "@/components/port-colors";
 import {
-  assignmentHiddenDuringDrag,
-  getDragHiddenModuleKeys,
   highlightFromLane,
   isLaneLinked,
   moduleRefKey,
@@ -30,12 +28,6 @@ type ActiveGroupDrag = {
   isGroup: boolean;
 };
 
-type ActiveModuleDrag = {
-  anchor: QuadModuleRef;
-  isGroup: boolean;
-  groupModules: QuadModuleRef[];
-};
-
 type DroppablePortLaneProps = {
   portId: string;
   moduleType: ModuleType;
@@ -46,7 +38,6 @@ type DroppablePortLaneProps = {
   activeLink: ModuleLinkHighlight | null;
   groupMode: boolean;
   activeGroupDrag: ActiveGroupDrag | null;
-  activeModuleDrag: ActiveModuleDrag | null;
   onLinkHover: (highlight: ModuleLinkHighlight | null) => void;
   onLinkSelect: (highlight: ModuleLinkHighlight) => void;
 };
@@ -61,20 +52,9 @@ export function DroppablePortLane({
   activeLink,
   groupMode,
   activeGroupDrag,
-  activeModuleDrag,
   onLinkHover,
   onLinkSelect,
 }: DroppablePortLaneProps) {
-  const hiddenDragKeys = getDragHiddenModuleKeys(
-    activeModuleDrag?.anchor,
-    activeModuleDrag?.groupModules,
-    activeModuleDrag?.isGroup ?? false,
-  );
-  const displayAssignment = assignmentHiddenDuringDrag(
-    assignment,
-    hiddenDragKeys,
-  );
-
   const { active } = useDndContext();
   const { setNodeRef, isOver } = useDroppable({
     id: portLaneId(portId, moduleType, laneIndex),
@@ -94,7 +74,7 @@ export function DroppablePortLane({
     isAssignedDrag &&
     activeGroupDrag?.isGroup &&
     activeGroupDrag.portId === portId;
-  const laneEmpty = displayAssignment === null;
+  const laneEmpty = assignment === null;
   const activeModuleKey =
     activeData?.blockId !== undefined &&
     activeData.moduleType !== undefined &&
@@ -105,7 +85,7 @@ export function DroppablePortLane({
           moduleIndex: activeData.moduleIndex,
         })
       : null;
-  const assignmentKey = displayAssignment ? moduleRefKey(displayAssignment) : null;
+  const assignmentKey = assignment ? moduleRefKey(assignment) : null;
   const canDropAssignedToEmpty =
     isAssignedDrag &&
     !groupMode &&
@@ -115,7 +95,7 @@ export function DroppablePortLane({
     isAssignedDrag &&
     !groupMode &&
     activeData?.moduleType === moduleType &&
-    displayAssignment !== null &&
+    assignment !== null &&
     activeModuleKey !== null &&
     activeModuleKey !== assignmentKey;
   const canDropGroupShift =
@@ -133,7 +113,7 @@ export function DroppablePortLane({
 
   function handlePointerEnter() {
     onLinkHover(
-      highlightFromLane(portId, moduleType, laneIndex, displayAssignment),
+      highlightFromLane(portId, moduleType, laneIndex, assignment),
     );
   }
 
@@ -143,7 +123,7 @@ export function DroppablePortLane({
 
   function handleClick(event: MouseEvent) {
     event.stopPropagation();
-    onLinkSelect(highlightFromLane(portId, moduleType, laneIndex, displayAssignment));
+    onLinkSelect(highlightFromLane(portId, moduleType, laneIndex, assignment));
   }
 
   return (
@@ -164,8 +144,8 @@ export function DroppablePortLane({
         grow={false}
         className={QUAD_MODULE_FIXED_WIDTH_CLASS}
         colorClassName={getModuleLinkColor(
-          displayAssignment ? colorIndex : undefined,
-          displayAssignment !== null,
+          assignment ? colorIndex : undefined,
+          assignment !== null,
           isLinked,
         )}
         highlightClassName={highlightClassName}

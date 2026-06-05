@@ -313,6 +313,8 @@ export function PortConfigEditor() {
     const assignment = findModuleAssignment(portAssignments, ports, anchor);
     if (!assignment) return;
 
+    selectPort(assignment.portId);
+
     const isAssigned = true;
     const useGroupMode = data.groupMode === true;
 
@@ -377,10 +379,14 @@ export function PortConfigEditor() {
     dragContextRef.current.activeModuleDrag = null;
     setActiveModuleDrag(null);
 
-    const { active } = event;
+    const { active, collisions } = event;
     const eventOverId = event.over ? String(event.over.id) : null;
+    const collisionLaneId = collisions
+      ?.map((collision) => String(collision.id))
+      .find((id) => id.startsWith("port-lane:"));
     const overId =
       (eventOverId?.startsWith("port-lane:") ? eventOverId : null) ??
+      collisionLaneId ??
       lastOverRef.current;
     lastOverRef.current = null;
 
@@ -529,7 +535,6 @@ export function PortConfigEditor() {
                 activeLink={activeLink}
                 groupMode={groupMode}
                 activeGroupDrag={activeGroupDrag}
-                activeModuleDrag={activeModuleDrag}
                 onGroupModeChange={setGroupMode}
                 onLinkHover={handleLinkHover}
                 onLinkSelect={handleLinkSelect}
