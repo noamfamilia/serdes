@@ -230,6 +230,22 @@ export function resolveGroupShiftTargetLane(
   return null;
 }
 
+export function reassignPortGroupToQuadAnchor(
+  assignments: PortAssignments,
+  ports: Port[],
+  port: Port,
+  anchor: QuadModuleRef,
+  targetLane: number,
+): PortAssignments | null {
+  const cleared = unlinkPort(assignments, port.id);
+  const emptied = {
+    ...cleared,
+    [port.id]: createPortAssignments(port),
+  };
+
+  return assignPortGroupFromAnchor(emptied, ports, port, anchor, targetLane);
+}
+
 export function reassignPortGroupByModuleIndexOffset(
   assignments: PortAssignments,
   ports: Port[],

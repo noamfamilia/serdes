@@ -54,6 +54,7 @@ import {
   parseQuadSlotId,
   removeAssignmentsForPort,
   reassignPortGroupByModuleIndexOffset,
+  reassignPortGroupToQuadAnchor,
   resolveGroupShiftTargetLane,
   shiftPortAssignments,
   swapModuleLanes,
@@ -629,6 +630,60 @@ export function PortConfigEditor() {
       dragState.sourceLane !== undefined &&
       dragState.portId === sourceAssignment.portId
     ) {
+      const isCrossQuadTarget =
+        targetRef.blockId !== dragState.anchor.blockId;
+
+      if (isCrossQuadTarget) {
+        if (
+          targetAssignment &&
+          targetAssignment.portId !== sourceAssignment.portId
+        ) {
+          failureReason = "port_mismatch";
+          appendDragDiagnostic("reject", failureReason, {
+            sourcePortId: sourceAssignment.portId,
+            targetPortId: targetAssignment.portId,
+          });
+          commitDragDiagnostics(true, applied);
+          return;
+        }
+
+        const alignLane =
+          targetAssignment?.laneIndex ?? dragState.sourceLane;
+        const groupAnchor: QuadModuleRef =
+          targetRef.moduleType === "rx"
+            ? targetRef
+            : {
+                blockId: targetRef.blockId,
+                moduleType: "rx",
+                moduleIndex: targetRef.moduleIndex,
+              };
+        const reassigned = reassignPortGroupToQuadAnchor(
+          currentAssignments,
+          currentPorts,
+          port,
+          groupAnchor,
+          alignLane,
+        );
+        if (reassigned) {
+          applyAssignmentsAndBlocks(reassigned);
+          applied = true;
+          appendDragDiagnostic("success", "Group reassigned to quad", {
+            groupAnchor,
+            alignLane,
+            targetRef,
+          });
+        } else {
+          failureReason = "group_cross_quad_failed";
+          appendDragDiagnostic("reject", failureReason, {
+            groupAnchor,
+            alignLane,
+            targetRef,
+          });
+        }
+        commitDragDiagnostics(true, applied);
+        return;
+      }
+
       const targetLane = resolveGroupShiftTargetLane(
         dragState.anchor,
         dragState.sourceLane,

@@ -109,8 +109,16 @@ export function QuadModuleSlot({
     isGroupAssignedDrag &&
     assignedLaneIndex !== undefined &&
     activeGroupDrag.sourceLane !== assignedLaneIndex;
+  const canDropCrossQuadGroup =
+    isGroupAssignedDrag &&
+    activeData?.moduleType === moduleType &&
+    !isSelf &&
+    activeData?.blockId !== blockId;
   const canDrop =
-    canDropAssignedToUnlinked || canDropAssignedSwap || canDropGroupShift;
+    canDropAssignedToUnlinked ||
+    canDropAssignedSwap ||
+    canDropGroupShift ||
+    canDropCrossQuadGroup;
 
   const highlightClassName = isOver && canDrop
     ? "ring-2 ring-violet-400 ring-inset"
