@@ -18,10 +18,31 @@ export function createDiagnosticEntry(
   };
 }
 
+export function getFailureSummary(entries: DropDiagnosticEntry[]): string {
+  const reject = [...entries].reverse().find((entry) => entry.phase === "reject");
+  if (reject) {
+    return `reject: ${reject.message}`;
+  }
+
+  const dragEnd = [...entries].reverse().find((entry) => entry.phase === "drag_end");
+  if (!dragEnd) {
+    return "log ends at drag_start only (no drag_end)";
+  }
+
+  const resolvedOverId = dragEnd.data?.resolvedOverId;
+  if (resolvedOverId == null || resolvedOverId === undefined) {
+    return "reject: no_drop_target (resolvedOverId is null)";
+  }
+
+  return `no reject line (resolvedOverId: ${String(resolvedOverId)})`;
+}
+
 export function formatDiagnosticLog(entries: DropDiagnosticEntry[]): string {
   if (entries.length === 0) return "(empty log)";
 
-  return entries
+  const summary = getFailureSummary(entries);
+
+  return `${summary}\n\n--- full log ---\n\n${entries
     .map((entry) => {
       const header = `[${entry.timestamp}] ${entry.phase}: ${entry.message}`;
       if (!entry.data || Object.keys(entry.data).length === 0) {
@@ -29,7 +50,7 @@ export function formatDiagnosticLog(entries: DropDiagnosticEntry[]): string {
       }
       return `${header}\n${JSON.stringify(entry.data, null, 2)}`;
     })
-    .join("\n\n");
+    .join("\n\n")}`;
 }
 
 export function summarizePortAssignments(

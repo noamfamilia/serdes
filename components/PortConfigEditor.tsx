@@ -413,7 +413,6 @@ export function PortConfigEditor() {
       selectedPortId,
       layoutPanelOpen,
       ports: ports.map((port) => ({ id: port.id, speed: port.speed })),
-      assignments: summarizePortAssignments(portAssignments),
     });
   }
 
