@@ -53,6 +53,7 @@ import {
   parseQuadModuleId,
   parseQuadSlotId,
   removeAssignmentsForPort,
+  resolveGroupShiftTargetLane,
   shiftPortAssignments,
   swapModuleLanes,
   unlinkModule,
@@ -621,6 +622,73 @@ export function PortConfigEditor() {
       targetRef,
     );
 
+    if (
+      currentGroupMode &&
+      dragState.isGroup &&
+      dragState.sourceLane !== undefined &&
+      dragState.portId === sourceAssignment.portId
+    ) {
+      const targetLane = resolveGroupShiftTargetLane(
+        dragState.anchor,
+        dragState.sourceLane,
+        targetRef,
+        targetAssignment,
+        sourceAssignment.portId,
+      );
+
+      if (targetLane === null) {
+        failureReason = "group_drop_target_unresolved";
+        appendDragDiagnostic("reject", failureReason, {
+          targetRef,
+          targetAssignment,
+          hint: "Group drops must land on a same-port lane or same-quad slot",
+        });
+        commitDragDiagnostics(true, applied);
+        return;
+      }
+
+      if (targetLane === dragState.sourceLane) {
+        commitDragDiagnostics(false, applied);
+        return;
+      }
+
+      const laneCount = getPortLaneCount(port.speed);
+      if (targetLane < 0 || targetLane >= laneCount) {
+        failureReason = "group_shift_out_of_range";
+        appendDragDiagnostic("reject", failureReason, {
+          sourceLane: dragState.sourceLane,
+          targetLane,
+          laneCount,
+        });
+        commitDragDiagnostics(true, applied);
+        return;
+      }
+
+      const shifted = shiftPortAssignments(
+        currentAssignments,
+        port,
+        dragState.sourceLane,
+        targetLane,
+      );
+      if (shifted) {
+        applyAssignmentsAndBlocks(shifted);
+        applied = true;
+        appendDragDiagnostic("success", "Group shift applied", {
+          sourceLane: dragState.sourceLane,
+          targetLane,
+          targetRef,
+        });
+      } else {
+        failureReason = "group_shift_failed";
+        appendDragDiagnostic("reject", failureReason, {
+          sourceLane: dragState.sourceLane,
+          targetLane,
+        });
+      }
+      commitDragDiagnostics(true, applied);
+      return;
+    }
+
     if (!targetAssignment) {
       applyAssignmentsAndBlocks(
         assignModuleToLane(
@@ -676,37 +744,6 @@ export function PortConfigEditor() {
       portSpeed: port.speed,
       portLanes: summarizePortAssignments({ [port.id]: portLanes })[port.id],
     });
-
-    if (
-      currentGroupMode &&
-      dragState.isGroup &&
-      dragState.portId === lane.portId &&
-      dragState.sourceLane !== undefined &&
-      dragState.sourceLane !== lane.laneIndex
-    ) {
-      const shifted = shiftPortAssignments(
-        currentAssignments,
-        port,
-        dragState.sourceLane,
-        lane.laneIndex,
-      );
-      if (shifted) {
-        applyAssignmentsAndBlocks(shifted);
-        applied = true;
-        appendDragDiagnostic("success", "Group shift applied", {
-          sourceLane: dragState.sourceLane,
-          targetLane: lane.laneIndex,
-        });
-      } else {
-        failureReason = "group_shift_failed";
-        appendDragDiagnostic("reject", failureReason, {
-          sourceLane: dragState.sourceLane,
-          targetLane: lane.laneIndex,
-        });
-      }
-      commitDragDiagnostics(true, applied);
-      return;
-    }
 
     if (targetModule === null) {
       applyAssignmentsAndBlocks(

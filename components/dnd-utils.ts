@@ -205,6 +205,31 @@ export function getPortGroupForModule(
   return { portId: found.portId, rx, tx };
 }
 
+export function resolveGroupShiftTargetLane(
+  anchor: QuadModuleRef,
+  sourceLane: number,
+  targetRef: QuadModuleRef,
+  targetAssignment: {
+    portId: string;
+    laneIndex: number;
+  } | null,
+  sourcePortId: string,
+): number | null {
+  if (targetAssignment) {
+    if (targetAssignment.portId !== sourcePortId) return null;
+    return targetAssignment.laneIndex;
+  }
+
+  if (
+    anchor.blockId === targetRef.blockId &&
+    anchor.moduleType === targetRef.moduleType
+  ) {
+    return sourceLane + (targetRef.moduleIndex - anchor.moduleIndex);
+  }
+
+  return null;
+}
+
 export function shiftPortAssignments(
   assignments: PortAssignments,
   port: Port,
