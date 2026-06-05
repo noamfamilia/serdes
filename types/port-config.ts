@@ -1,6 +1,7 @@
 export type PortBlock = {
   id: string;
   label: string;
+  isPlaceholder?: boolean;
 };
 
 export const PORT_SPEEDS = ["100G", "200G", "400G", "800G"] as const;

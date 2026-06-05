@@ -16,6 +16,14 @@ export function quadModuleId(
   return `quad-module:${blockId}:${moduleType}:${moduleIndex}`;
 }
 
+export function quadSlotId(
+  blockId: string,
+  moduleType: ModuleType,
+  moduleIndex: number,
+) {
+  return `quad-slot:${blockId}:${moduleType}:${moduleIndex}`;
+}
+
 export function portLaneId(
   portId: string,
   moduleType: ModuleType,
@@ -28,6 +36,17 @@ export const MODULE_UNLINK_DROP_ID = "module-unlink-drop";
 
 export function parseQuadModuleId(id: string): QuadModuleRef | null {
   const match = /^quad-module:([^:]+):(rx|tx):(\d+)$/.exec(id);
+  if (!match) return null;
+
+  return {
+    blockId: match[1],
+    moduleType: match[2] as ModuleType,
+    moduleIndex: Number(match[3]),
+  };
+}
+
+export function parseQuadSlotId(id: string): QuadModuleRef | null {
+  const match = /^quad-slot:([^:]+):(rx|tx):(\d+)$/.exec(id);
   if (!match) return null;
 
   return {
@@ -79,6 +98,40 @@ export function ensurePortAssignments(
   };
 }
 
+export function swapModuleLanes(
+  assignments: PortAssignments,
+  port: Port,
+  module: QuadModuleRef,
+  source: {
+    moduleType: ModuleType;
+    laneIndex: number;
+  },
+  targetLaneIndex: number,
+): PortAssignments {
+  const lanes = ensurePortAssignments(assignments, port)[port.id];
+  const targetModule = lanes[module.moduleType][targetLaneIndex];
+  if (!targetModule) return assignments;
+
+  let next = unlinkModule(assignments, module);
+  next = unlinkModule(next, targetModule);
+  next = assignModuleToLane(
+    next,
+    port,
+    module.moduleType,
+    targetLaneIndex,
+    module,
+  );
+  next = assignModuleToLane(
+    next,
+    port,
+    source.moduleType,
+    source.laneIndex,
+    targetModule,
+  );
+
+  return next;
+}
+
 export function assignModuleToLane(
   assignments: PortAssignments,
   port: Port,
@@ -106,6 +159,139 @@ export function assignModuleToLane(
     ...next,
     [port.id]: portAssignment,
   };
+}
+
+export function unlinkPort(
+  assignments: PortAssignments,
+  portId: string,
+): PortAssignments {
+  const lanes = assignments[portId];
+  if (!lanes) return assignments;
+
+  let next = assignments;
+  for (const type of ["rx", "tx"] as const) {
+    for (const module of lanes[type]) {
+      if (module) {
+        next = unlinkModule(next, module);
+      }
+    }
+  }
+
+  return next;
+}
+
+export function getPortGroupForModule(
+  assignments: PortAssignments,
+  ports: Port[],
+  module: QuadModuleRef,
+): {
+  portId: string;
+  rx: { laneIndex: number; module: QuadModuleRef }[];
+  tx: { laneIndex: number; module: QuadModuleRef }[];
+} | null {
+  const found = findModuleAssignment(assignments, ports, module);
+  if (!found) return null;
+
+  const lanes = assignments[found.portId];
+  if (!lanes) return null;
+
+  const rx = lanes.rx.flatMap((assigned, laneIndex) =>
+    assigned ? [{ laneIndex, module: assigned }] : [],
+  );
+  const tx = lanes.tx.flatMap((assigned, laneIndex) =>
+    assigned ? [{ laneIndex, module: assigned }] : [],
+  );
+
+  return { portId: found.portId, rx, tx };
+}
+
+export function shiftPortAssignments(
+  assignments: PortAssignments,
+  port: Port,
+  sourceLane: number,
+  targetLane: number,
+): PortAssignments | null {
+  const offset = targetLane - sourceLane;
+  if (offset === 0) return assignments;
+
+  const lanes = ensurePortAssignments(assignments, port)[port.id];
+  const laneCount = getPortLaneCount(port.speed);
+  const newRx: (QuadModuleRef | null)[] = Array.from(
+    { length: laneCount },
+    () => null,
+  );
+  const newTx: (QuadModuleRef | null)[] = Array.from(
+    { length: laneCount },
+    () => null,
+  );
+
+  for (const type of ["rx", "tx"] as const) {
+    const source = lanes[type];
+    const target = type === "rx" ? newRx : newTx;
+
+    for (let laneIndex = 0; laneIndex < laneCount; laneIndex++) {
+      const module = source[laneIndex];
+      if (!module) continue;
+
+      const nextLane = laneIndex + offset;
+      if (nextLane < 0 || nextLane >= laneCount) return null;
+      if (target[nextLane]) return null;
+
+      target[nextLane] = module;
+    }
+  }
+
+  return {
+    ...assignments,
+    [port.id]: { rx: newRx, tx: newTx },
+  };
+}
+
+export function assignPortGroupFromAnchor(
+  assignments: PortAssignments,
+  ports: Port[],
+  port: Port,
+  anchor: QuadModuleRef,
+  targetLane: number,
+): PortAssignments | null {
+  const laneCount = getPortLaneCount(port.speed);
+  const next = ensurePortAssignments(assignments, port);
+  const current = next[port.id];
+
+  for (let lane = 0; lane < laneCount; lane++) {
+    const moduleIndex = anchor.moduleIndex + (lane - targetLane);
+    if (moduleIndex < 0 || moduleIndex > 3) return null;
+
+    for (const type of ["rx", "tx"] as const) {
+      if (current[type][lane]) return null;
+
+      const ref: QuadModuleRef = {
+        blockId: anchor.blockId,
+        moduleType: type,
+        moduleIndex,
+      };
+      if (findModuleAssignment(next, ports, ref)) return null;
+    }
+  }
+
+  let result = next;
+  for (let lane = 0; lane < laneCount; lane++) {
+    const moduleIndex = anchor.moduleIndex + (lane - targetLane);
+    const rxRef: QuadModuleRef = {
+      blockId: anchor.blockId,
+      moduleType: "rx",
+      moduleIndex,
+    };
+    const txRef: QuadModuleRef = {
+      blockId: anchor.blockId,
+      moduleType: "tx",
+      moduleIndex,
+    };
+    result = assignModuleToLane(result, port, "rx", lane, rxRef);
+    result = assignModuleToLane(result, port, "tx", lane, txRef);
+  }
+
+  return result;
 }
 
 export function unlinkModule(

@@ -1,17 +1,19 @@
 "use client";
 
 import { useState, type ChangeEvent } from "react";
-import { getPortColorClasses } from "@/components/port-colors";
+import { PORT_LIST_DEFAULT, PORT_LIST_SELECTED } from "@/components/port-colors";
 import { PORT_SPEEDS, type Port, type PortSpeed } from "@/types/port-config";
 
 type PortsPanelProps = {
   ports: Port[];
+  selectedPortId: string | null;
   onSelectPort: (id: string) => void;
   onAddPort: (speed: PortSpeed) => void;
 };
 
 export function PortsPanel({
   ports,
+  selectedPortId,
   onSelectPort,
   onAddPort,
 }: PortsPanelProps) {
@@ -28,20 +30,26 @@ export function PortsPanel({
   return (
     <div className="flex w-[180px] shrink-0 flex-col rounded-2xl border border-zinc-200 bg-white p-3 shadow-md">
       <h2 className="shrink-0 py-0.5 text-center text-sm font-semibold text-zinc-800">
-        Ports
+        Ports list
       </h2>
 
       <div className="mt-2 flex flex-col gap-2">
-        {ports.map((port, index) => (
-          <button
-            key={port.id}
-            type="button"
-            onClick={() => onSelectPort(port.id)}
-            className={`flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border text-xs font-medium shadow-sm transition-shadow hover:shadow-md ${getPortColorClasses(index)}`}
-          >
-            {port.speed}
-          </button>
-        ))}
+        {ports.map((port) => {
+          const isSelected = port.id === selectedPortId;
+
+          return (
+            <button
+              key={port.id}
+              type="button"
+              onClick={() => onSelectPort(port.id)}
+              className={`flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border text-xs font-medium shadow-sm transition-colors hover:shadow-md ${
+                isSelected ? PORT_LIST_SELECTED : PORT_LIST_DEFAULT
+              }`}
+            >
+              {port.speed}
+            </button>
+          );
+        })}
 
         <select
           value={selectValue}

@@ -9,7 +9,28 @@ export const PORT_COLORS = [
   "border-indigo-200 bg-indigo-50 text-indigo-900",
 ] as const;
 
-export const MODULE_LINK_HIGHLIGHT = "ring-2 ring-zinc-500 ring-inset";
+export const PORT_COLORS_INTENSE = [
+  "border-emerald-300 bg-emerald-100 text-emerald-950",
+  "border-sky-300 bg-sky-100 text-sky-950",
+  "border-violet-300 bg-violet-100 text-violet-950",
+  "border-amber-300 bg-amber-100 text-amber-950",
+  "border-rose-300 bg-rose-100 text-rose-950",
+  "border-cyan-300 bg-cyan-100 text-cyan-950",
+  "border-orange-300 bg-orange-100 text-orange-950",
+  "border-indigo-300 bg-indigo-100 text-indigo-950",
+] as const;
+
+export const MODULE_UNASSIGNED_INTENSE =
+  "border-zinc-300 bg-zinc-100 text-zinc-900";
+
+export const PORT_LIST_DEFAULT =
+  "border-zinc-200 bg-zinc-100 text-zinc-600";
+
+export const PORT_LIST_SELECTED =
+  "border-zinc-300 bg-zinc-200 text-zinc-800";
+
+export const QUAD_PLACEHOLDER_MODULE =
+  "border-zinc-200 bg-white text-zinc-500";
 
 export function getPortColorClasses(index: number) {
   return PORT_COLORS[index % PORT_COLORS.length];
@@ -17,4 +38,26 @@ export function getPortColorClasses(index: number) {
 
 export function getPortColor(index: number) {
   return PORT_COLORS[index % PORT_COLORS.length];
+}
+
+export function getPortColorIntense(index: number) {
+  return PORT_COLORS_INTENSE[index % PORT_COLORS_INTENSE.length];
+}
+
+export function getModuleLinkColor(
+  colorIndex: number | undefined,
+  isAssigned: boolean,
+  isLinked: boolean,
+): string | undefined {
+  if (!isLinked) {
+    return isAssigned && colorIndex !== undefined
+      ? getPortColor(colorIndex)
+      : undefined;
+  }
+
+  if (isAssigned && colorIndex !== undefined) {
+    return getPortColorIntense(colorIndex);
+  }
+
+  return MODULE_UNASSIGNED_INTENSE;
 }

@@ -1,8 +1,4 @@
-import {
-  PORT_MODULE_WIDTH_CLASS,
-  QUAD_MODULE_HEIGHT_CLASS,
-  ROTATED_QUAD_MODULE_SLOT_CLASS,
-} from "@/components/quad-module-dimensions";
+import { QUAD_MODULE_HEIGHT_CLASS } from "@/components/quad-module-dimensions";
 
 type ModuleCardProps = {
   label: string;
@@ -10,15 +6,22 @@ type ModuleCardProps = {
   orientation?: "horizontal" | "vertical";
   size?: "default" | "sm";
   grow?: boolean;
+  outline?: boolean;
   colorClassName?: string;
   highlightClassName?: string;
   className?: string;
 };
 
 const variantStyles = {
-  config: "border-zinc-200 bg-white text-zinc-800",
+  config: "border-zinc-300 bg-zinc-200 text-zinc-700",
   rx: "border-zinc-200 bg-white text-zinc-800",
   tx: "border-zinc-200 bg-white text-zinc-800",
+};
+
+const outlineStyles = {
+  config: "border-zinc-200 bg-white text-zinc-400",
+  rx: "border-zinc-200 bg-white text-zinc-400",
+  tx: "border-zinc-200 bg-white text-zinc-400",
 };
 
 export function ModuleCard({
@@ -27,11 +30,14 @@ export function ModuleCard({
   orientation = "horizontal",
   size = "default",
   grow = true,
+  outline = false,
   colorClassName,
   highlightClassName,
   className,
 }: ModuleCardProps) {
-  const styleClass = colorClassName ?? variantStyles[variant];
+  const styleClass =
+    colorClassName ??
+    (outline ? outlineStyles[variant] : variantStyles[variant]);
 
   if (orientation === "vertical") {
     const sizeClass =
@@ -43,7 +49,7 @@ export function ModuleCard({
 
     return (
       <div
-        className={`flex items-center justify-center border shadow-sm ${styleClass} ${highlightClassName ?? ""} ${className ?? ""} ${sizeClass}`}
+        className={`flex items-center justify-center border shadow-sm ${styleClass} ${highlightClassName ?? ""} ${className ?? ""} ${sizeClass} ${outline ? "shadow-none" : ""}`}
       >
         <span
           className={`-rotate-90 whitespace-nowrap font-medium ${
@@ -63,26 +69,6 @@ export function ModuleCard({
       }`}
     >
       {label}
-    </div>
-  );
-}
-
-type RotatedQuadModuleCardProps = Omit<
-  ModuleCardProps,
-  "orientation" | "grow" | "size"
->;
-
-export function RotatedQuadModuleCard(props: RotatedQuadModuleCardProps) {
-  return (
-    <div className={`relative shrink-0 ${ROTATED_QUAD_MODULE_SLOT_CLASS}`}>
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90">
-        <ModuleCard
-          {...props}
-          orientation="vertical"
-          grow={false}
-          className={PORT_MODULE_WIDTH_CLASS}
-        />
-      </div>
     </div>
   );
 }

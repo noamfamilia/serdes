@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { getPortColor } from "@/components/port-colors";
 import { getPortLaneLabel } from "@/components/dnd-utils";
 import { DroppablePortLane } from "@/components/DroppablePortLane";
 import {
@@ -10,6 +9,7 @@ import {
   type Port,
   type PortBlock,
   type PortLaneAssignments,
+  type ModuleType,
 } from "@/types/port-config";
 
 type PortDetailPanelProps = {
@@ -18,6 +18,13 @@ type PortDetailPanelProps = {
   colorIndex: number;
   assignments: PortLaneAssignments;
   activeLink: ModuleLinkHighlight | null;
+  groupMode: boolean;
+  activeGroupDrag: {
+    portId: string;
+    sourceLane: number;
+    isGroup: boolean;
+  } | null;
+  onGroupModeChange: (groupMode: boolean) => void;
   onLinkHover: (highlight: ModuleLinkHighlight | null) => void;
   onLinkSelect: (highlight: ModuleLinkHighlight) => void;
   onClearLink: () => void;
@@ -30,6 +37,9 @@ export function PortDetailPanel({
   colorIndex,
   assignments,
   activeLink,
+  groupMode,
+  activeGroupDrag,
+  onGroupModeChange,
   onLinkHover,
   onLinkSelect,
   onClearLink,
@@ -50,15 +60,11 @@ export function PortDetailPanel({
 
   return (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-zinc-200 bg-white p-4 shadow-md"
+      className="flex w-max shrink-0 flex-col rounded-2xl border border-zinc-200 bg-white p-4 shadow-md"
       onClick={onClearLink}
     >
       <div className="relative flex shrink-0 items-center justify-center px-7 pb-3">
-        <div
-          className={`flex h-10 w-full max-w-[180px] items-center justify-center rounded-xl border text-xs font-medium shadow-sm ${getPortColor(colorIndex)}`}
-        >
-          {port.speed}
-        </div>
+        <h2 className="text-sm font-semibold text-zinc-800">Layout</h2>
         <button
           type="button"
           onClick={(event) => {
@@ -66,13 +72,13 @@ export function PortDetailPanel({
             onClose();
           }}
           className="absolute right-0 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
-          aria-label={`Close ${port.speed} details`}
+          aria-label="Close layout"
         >
           ×
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex shrink-0">
         <div className="flex w-max shrink-0 flex-col gap-2">
           <div className="flex gap-1">
             {Array.from({ length: laneCount }, (_, i) => (
@@ -89,6 +95,8 @@ export function PortDetailPanel({
                 assignment={assignments.rx[i] ?? null}
                 colorIndex={colorIndex}
                 activeLink={activeLink}
+                groupMode={groupMode}
+                activeGroupDrag={activeGroupDrag}
                 onLinkHover={onLinkHover}
                 onLinkSelect={onLinkSelect}
               />
@@ -109,12 +117,42 @@ export function PortDetailPanel({
                 assignment={assignments.tx[i] ?? null}
                 colorIndex={colorIndex}
                 activeLink={activeLink}
+                groupMode={groupMode}
+                activeGroupDrag={activeGroupDrag}
                 onLinkHover={onLinkHover}
                 onLinkSelect={onLinkSelect}
               />
             ))}
           </div>
         </div>
+      </div>
+
+      <div
+        className="mt-3 flex shrink-0 rounded-lg border border-zinc-200 p-0.5"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={() => onGroupModeChange(true)}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            groupMode
+              ? "bg-zinc-200 text-zinc-900"
+              : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800"
+          }`}
+        >
+          Group
+        </button>
+        <button
+          type="button"
+          onClick={() => onGroupModeChange(false)}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            !groupMode
+              ? "bg-zinc-200 text-zinc-900"
+              : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800"
+          }`}
+        >
+          Ungroup
+        </button>
       </div>
     </div>
   );

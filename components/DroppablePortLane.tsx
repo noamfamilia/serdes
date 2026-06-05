@@ -2,19 +2,30 @@
 
 import type { MouseEvent } from "react";
 import { useDndContext, useDroppable } from "@dnd-kit/core";
-import { MODULE_LINK_HIGHLIGHT, getPortColor } from "@/components/port-colors";
+import { getModuleLinkColor } from "@/components/port-colors";
 import {
   highlightFromLane,
   isLaneLinked,
+  moduleRefKey,
   portLaneId,
 } from "@/components/dnd-utils";
-import { RotatedQuadModuleCard } from "@/components/ModuleCard";
+import { ModuleCard } from "@/components/ModuleCard";
+import { QUAD_MODULE_FIXED_WIDTH_CLASS } from "@/components/quad-module-dimensions";
 import type { ModuleLinkHighlight, ModuleType, QuadModuleRef } from "@/types/port-config";
 
 type ActiveQuadModuleData = {
   type?: string;
+  blockId?: string;
   moduleType?: ModuleType;
+  moduleIndex?: number;
   isAssigned?: boolean;
+  groupMode?: boolean;
+};
+
+type ActiveGroupDrag = {
+  portId: string;
+  sourceLane: number;
+  isGroup: boolean;
 };
 
 type DroppablePortLaneProps = {
@@ -25,6 +36,8 @@ type DroppablePortLaneProps = {
   assignment: QuadModuleRef | null;
   colorIndex: number;
   activeLink: ModuleLinkHighlight | null;
+  groupMode: boolean;
+  activeGroupDrag: ActiveGroupDrag | null;
   onLinkHover: (highlight: ModuleLinkHighlight | null) => void;
   onLinkSelect: (highlight: ModuleLinkHighlight) => void;
 };
@@ -37,6 +50,8 @@ export function DroppablePortLane({
   assignment,
   colorIndex,
   activeLink,
+  groupMode,
+  activeGroupDrag,
   onLinkHover,
   onLinkSelect,
 }: DroppablePortLaneProps) {
@@ -54,18 +69,46 @@ export function DroppablePortLane({
   const activeData = active?.data.current as ActiveQuadModuleData | undefined;
   const isModuleDrag = activeData?.type === "quad-module";
   const isAssignedDrag = isModuleDrag && activeData?.isAssigned === true;
+  const isGroupAssignedDrag =
+    groupMode &&
+    isAssignedDrag &&
+    activeGroupDrag?.isGroup &&
+    activeGroupDrag.portId === portId;
   const laneEmpty = assignment === null;
-  const canDrop =
-    isModuleDrag &&
+  const activeModuleKey =
+    activeData?.blockId !== undefined &&
+    activeData.moduleType !== undefined &&
+    activeData.moduleIndex !== undefined
+      ? moduleRefKey({
+          blockId: activeData.blockId,
+          moduleType: activeData.moduleType,
+          moduleIndex: activeData.moduleIndex,
+        })
+      : null;
+  const assignmentKey = assignment ? moduleRefKey(assignment) : null;
+  const canDropAssignedToEmpty =
+    isAssignedDrag &&
+    !groupMode &&
     activeData?.moduleType === moduleType &&
-    !isAssignedDrag &&
     laneEmpty;
+  const canDropAssignedSwap =
+    isAssignedDrag &&
+    !groupMode &&
+    activeData?.moduleType === moduleType &&
+    assignment !== null &&
+    activeModuleKey !== null &&
+    activeModuleKey !== assignmentKey;
+  const canDropGroupShift =
+    isGroupAssignedDrag &&
+    activeGroupDrag.sourceLane !== laneIndex;
+  const canDrop =
+    canDropAssignedToEmpty || canDropAssignedSwap || canDropGroupShift;
   const isLinked = isLaneLinked(activeLink, portId, moduleType, laneIndex);
 
   const highlightClassName = isOver && canDrop
     ? "ring-2 ring-violet-400 ring-inset"
-    : isLinked
-      ? MODULE_LINK_HIGHLIGHT
+    : canDrop
+      ? "ring-1 ring-violet-200 ring-inset"
       : undefined;
 
   function handlePointerEnter() {
@@ -90,12 +133,21 @@ export function DroppablePortLane({
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
       onClick={handleClick}
-      className="shrink-0 cursor-pointer"
+      className={`shrink-0 cursor-pointer ${
+        canDrop ? "rounded-xl p-2 -m-2" : ""
+      }`}
     >
-      <RotatedQuadModuleCard
+      <ModuleCard
         label={label}
         variant={moduleType}
-        colorClassName={assignment ? getPortColor(colorIndex) : undefined}
+        orientation="vertical"
+        grow={false}
+        className={QUAD_MODULE_FIXED_WIDTH_CLASS}
+        colorClassName={getModuleLinkColor(
+          assignment ? colorIndex : undefined,
+          assignment !== null,
+          isLinked,
+        )}
         highlightClassName={highlightClassName}
       />
     </div>
