@@ -230,6 +230,63 @@ export function resolveGroupShiftTargetLane(
   return null;
 }
 
+export function reassignPortGroupByModuleIndexOffset(
+  assignments: PortAssignments,
+  ports: Port[],
+  port: Port,
+  moduleIndexOffset: number,
+): PortAssignments | null {
+  if (moduleIndexOffset === 0) return assignments;
+
+  const lanes = ensurePortAssignments(assignments, port)[port.id];
+  const laneCount = getPortLaneCount(port.speed);
+
+  for (let laneIndex = 0; laneIndex < laneCount; laneIndex++) {
+    for (const type of ["rx", "tx"] as const) {
+      const module = lanes[type][laneIndex];
+      if (!module) continue;
+
+      const nextIndex = module.moduleIndex + moduleIndexOffset;
+      if (nextIndex < 0 || nextIndex > 3) return null;
+
+      const nextRef: QuadModuleRef = {
+        blockId: module.blockId,
+        moduleType: type,
+        moduleIndex: nextIndex,
+      };
+      const existing = findModuleAssignment(assignments, ports, nextRef);
+      if (existing && existing.portId !== port.id) return null;
+    }
+  }
+
+  const newRx = [...lanes.rx];
+  const newTx = [...lanes.tx];
+
+  for (let laneIndex = 0; laneIndex < laneCount; laneIndex++) {
+    for (const type of ["rx", "tx"] as const) {
+      const module = lanes[type][laneIndex];
+      if (!module) continue;
+
+      const nextRef: QuadModuleRef = {
+        blockId: module.blockId,
+        moduleType: type,
+        moduleIndex: module.moduleIndex + moduleIndexOffset,
+      };
+
+      if (type === "rx") {
+        newRx[laneIndex] = nextRef;
+      } else {
+        newTx[laneIndex] = nextRef;
+      }
+    }
+  }
+
+  return {
+    ...assignments,
+    [port.id]: { rx: newRx, tx: newTx },
+  };
+}
+
 export function shiftPortAssignments(
   assignments: PortAssignments,
   port: Port,

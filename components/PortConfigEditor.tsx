@@ -53,6 +53,7 @@ import {
   parseQuadModuleId,
   parseQuadSlotId,
   removeAssignmentsForPort,
+  reassignPortGroupByModuleIndexOffset,
   resolveGroupShiftTargetLane,
   shiftPortAssignments,
   swapModuleLanes,
@@ -647,13 +648,45 @@ export function PortConfigEditor() {
         return;
       }
 
-      if (targetLane === dragState.sourceLane) {
+      const moduleIndexOffset =
+        targetRef.moduleIndex - dragState.anchor.moduleIndex;
+      const sameQuadDrop =
+        !targetAssignment &&
+        dragState.anchor.blockId === targetRef.blockId &&
+        dragState.anchor.moduleType === targetRef.moduleType;
+
+      if (targetLane === dragState.sourceLane && moduleIndexOffset === 0) {
         commitDragDiagnostics(false, applied);
         return;
       }
 
       const laneCount = getPortLaneCount(port.speed);
       if (targetLane < 0 || targetLane >= laneCount) {
+        if (sameQuadDrop && moduleIndexOffset !== 0) {
+          const reassigned = reassignPortGroupByModuleIndexOffset(
+            currentAssignments,
+            currentPorts,
+            port,
+            moduleIndexOffset,
+          );
+          if (reassigned) {
+            applyAssignmentsAndBlocks(reassigned);
+            applied = true;
+            appendDragDiagnostic("success", "Group reassigned by module index", {
+              moduleIndexOffset,
+              targetRef,
+            });
+          } else {
+            failureReason = "group_reassign_failed";
+            appendDragDiagnostic("reject", failureReason, {
+              moduleIndexOffset,
+              targetRef,
+            });
+          }
+          commitDragDiagnostics(true, applied);
+          return;
+        }
+
         failureReason = "group_shift_out_of_range";
         appendDragDiagnostic("reject", failureReason, {
           sourceLane: dragState.sourceLane,
