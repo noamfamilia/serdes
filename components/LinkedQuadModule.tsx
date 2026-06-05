@@ -59,7 +59,7 @@ export function LinkedQuadModule({
       onPointerLeave={onLinkLeave}
       onClick={onLinkSelect}
       className={`absolute inset-0 z-10 touch-none ${
-        isHiddenDuringDrag ? "cursor-grabbing opacity-30" : "cursor-grab"
+        isHiddenDuringDrag ? "invisible cursor-grabbing" : "cursor-grab"
       }`}
       data-link-surface=""
       data-module-key={moduleRefKey({ blockId, moduleType, moduleIndex })}

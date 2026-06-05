@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import { getPortLaneLabel } from "@/components/dnd-utils";
+import {
+  assignmentHiddenDuringDrag,
+  getDragHiddenModuleKeys,
+  getPortLaneLabel,
+} from "@/components/dnd-utils";
 import { DroppablePortLane } from "@/components/DroppablePortLane";
 import {
   getPortLaneCount,
@@ -10,7 +14,14 @@ import {
   type PortBlock,
   type PortLaneAssignments,
   type ModuleType,
+  type QuadModuleRef,
 } from "@/types/port-config";
+
+type ActiveModuleDrag = {
+  anchor: QuadModuleRef;
+  isGroup: boolean;
+  groupModules: QuadModuleRef[];
+};
 
 type PortDetailPanelProps = {
   port: Port;
@@ -24,6 +35,7 @@ type PortDetailPanelProps = {
     sourceLane: number;
     isGroup: boolean;
   } | null;
+  activeModuleDrag: ActiveModuleDrag | null;
   onGroupModeChange: (groupMode: boolean) => void;
   onLinkHover: (highlight: ModuleLinkHighlight | null) => void;
   onLinkSelect: (highlight: ModuleLinkHighlight) => void;
@@ -39,6 +51,7 @@ export function PortDetailPanel({
   activeLink,
   groupMode,
   activeGroupDrag,
+  activeModuleDrag,
   onGroupModeChange,
   onLinkHover,
   onLinkSelect,
@@ -57,6 +70,22 @@ export function PortDetailPanel({
   }, [onClose]);
 
   const laneCount = getPortLaneCount(port.speed);
+  const hiddenDragKeys = getDragHiddenModuleKeys(
+    activeModuleDrag?.anchor,
+    activeModuleDrag?.groupModules,
+    activeModuleDrag?.isGroup ?? false,
+  );
+
+  function laneLabel(
+    assignment: QuadModuleRef | null,
+    moduleType: ModuleType,
+  ) {
+    return getPortLaneLabel(
+      blocks,
+      assignmentHiddenDuringDrag(assignment, hiddenDragKeys),
+      moduleType,
+    );
+  }
 
   return (
     <div
@@ -87,16 +116,13 @@ export function PortDetailPanel({
                 portId={port.id}
                 moduleType="rx"
                 laneIndex={i}
-                label={getPortLaneLabel(
-                  blocks,
-                  assignments.rx[i] ?? null,
-                  "rx",
-                )}
+                label={laneLabel(assignments.rx[i] ?? null, "rx")}
                 assignment={assignments.rx[i] ?? null}
                 colorIndex={colorIndex}
                 activeLink={activeLink}
                 groupMode={groupMode}
                 activeGroupDrag={activeGroupDrag}
+                activeModuleDrag={activeModuleDrag}
                 onLinkHover={onLinkHover}
                 onLinkSelect={onLinkSelect}
               />
@@ -109,16 +135,13 @@ export function PortDetailPanel({
                 portId={port.id}
                 moduleType="tx"
                 laneIndex={i}
-                label={getPortLaneLabel(
-                  blocks,
-                  assignments.tx[i] ?? null,
-                  "tx",
-                )}
+                label={laneLabel(assignments.tx[i] ?? null, "tx")}
                 assignment={assignments.tx[i] ?? null}
                 colorIndex={colorIndex}
                 activeLink={activeLink}
                 groupMode={groupMode}
                 activeGroupDrag={activeGroupDrag}
+                activeModuleDrag={activeModuleDrag}
                 onLinkHover={onLinkHover}
                 onLinkSelect={onLinkSelect}
               />

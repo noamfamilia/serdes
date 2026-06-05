@@ -2,7 +2,7 @@ import { pointerWithin, type Collision, type CollisionDetection } from "@dnd-kit
 import { parsePortLaneId } from "@/components/dnd-utils";
 import type { ModuleType } from "@/types/port-config";
 
-const PORT_LANE_SNAP_DISTANCE = 72;
+const PORT_LANE_SNAP_DISTANCE = 120;
 
 function distanceToRect(
   point: { x: number; y: number },

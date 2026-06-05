@@ -73,6 +73,26 @@ export function moduleRefKey(ref: QuadModuleRef) {
   return `${ref.blockId}:${ref.moduleType}:${ref.moduleIndex}`;
 }
 
+export function getDragHiddenModuleKeys(
+  anchor: QuadModuleRef | null | undefined,
+  groupModules: QuadModuleRef[] | null | undefined,
+  isGroup: boolean,
+): Set<string> {
+  if (!anchor) return new Set();
+  if (isGroup && groupModules?.length) {
+    return new Set(groupModules.map(moduleRefKey));
+  }
+  return new Set([moduleRefKey(anchor)]);
+}
+
+export function assignmentHiddenDuringDrag(
+  assignment: QuadModuleRef | null,
+  hiddenKeys: Set<string>,
+): QuadModuleRef | null {
+  if (!assignment) return null;
+  return hiddenKeys.has(moduleRefKey(assignment)) ? null : assignment;
+}
+
 export function createPortAssignments(port: Port): PortAssignments[string] {
   const laneCount = getPortLaneCount(port.speed);
   return {

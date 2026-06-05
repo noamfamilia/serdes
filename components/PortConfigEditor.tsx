@@ -7,6 +7,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type DragCancelEvent,
   type DragEndEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
@@ -364,6 +365,12 @@ export function PortConfigEditor() {
     }
   }
 
+  function handleDragCancel(_event: DragCancelEvent) {
+    dragContextRef.current.activeModuleDrag = null;
+    setActiveModuleDrag(null);
+    lastOverRef.current = null;
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { portAssignments: currentAssignments, ports: currentPorts, groupMode: currentGroupMode, activeModuleDrag: dragState } =
       dragContextRef.current;
@@ -493,6 +500,7 @@ export function PortConfigEditor() {
       collisionDetection={portLaneCollision}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
+      onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
       <div className="flex h-full min-h-screen flex-col bg-zinc-100">
@@ -521,6 +529,7 @@ export function PortConfigEditor() {
                 activeLink={activeLink}
                 groupMode={groupMode}
                 activeGroupDrag={activeGroupDrag}
+                activeModuleDrag={activeModuleDrag}
                 onGroupModeChange={setGroupMode}
                 onLinkHover={handleLinkHover}
                 onLinkSelect={handleLinkSelect}
