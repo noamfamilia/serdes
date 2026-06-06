@@ -17,12 +17,24 @@ type BlockCanvasProps = {
   ) => { portId: string; laneIndex: number } | undefined;
   activeLink?: ModuleLinkHighlight | null;
   groupMode?: boolean;
-  groupModuleKeys?: Set<string>;
   activeGroupDrag?: {
     portId: string;
     sourceLane: number;
     isGroup: boolean;
   } | null;
+  activeDragModuleKey?: string | null;
+  groupPreviewDisplay?: {
+    sourceHiddenKeys: Set<string>;
+    targetPreview: Map<
+      string,
+      {
+        member: QuadModuleRef;
+        portColorIndex: number;
+        blockLabel: string;
+      }
+    >;
+  } | null;
+  canGroupDropOnSlot?: (dropSlot: QuadModuleRef) => boolean;
   onModuleLinkHover?: (module: QuadModuleRef) => void;
   onModuleLinkLeave?: () => void;
   onModuleLinkSelect?: (module: QuadModuleRef) => void;
@@ -34,8 +46,10 @@ export function BlockCanvas({
   getModuleLaneAssignment,
   activeLink,
   groupMode,
-  groupModuleKeys,
   activeGroupDrag,
+  activeDragModuleKey,
+  groupPreviewDisplay,
+  canGroupDropOnSlot,
   onModuleLinkHover,
   onModuleLinkLeave,
   onModuleLinkSelect,
@@ -53,8 +67,10 @@ export function BlockCanvas({
             getModuleLaneAssignment={getModuleLaneAssignment}
             activeLink={activeLink}
             groupMode={groupMode}
-            groupModuleKeys={groupModuleKeys}
             activeGroupDrag={activeGroupDrag}
+            activeDragModuleKey={activeDragModuleKey}
+            groupPreviewDisplay={groupPreviewDisplay}
+            canGroupDropOnSlot={canGroupDropOnSlot}
             onModuleLinkHover={onModuleLinkHover}
             onModuleLinkLeave={onModuleLinkLeave}
             onModuleLinkSelect={onModuleLinkSelect}
@@ -69,8 +85,10 @@ export function BlockCanvas({
             getModuleLaneAssignment={getModuleLaneAssignment}
             activeLink={activeLink}
             groupMode={groupMode}
-            groupModuleKeys={groupModuleKeys}
             activeGroupDrag={activeGroupDrag}
+            activeDragModuleKey={activeDragModuleKey}
+            groupPreviewDisplay={groupPreviewDisplay}
+            canGroupDropOnSlot={canGroupDropOnSlot}
             onModuleLinkHover={onModuleLinkHover}
             onModuleLinkLeave={onModuleLinkLeave}
             onModuleLinkSelect={onModuleLinkSelect}

@@ -20,11 +20,10 @@ import {
   summarizePortAssignments,
   type DropDiagnosticEntry,
 } from "@/components/drop-diagnostics";
-import { GroupDragOverlay } from "@/components/GroupDragOverlay";
 import { ModuleCard } from "@/components/ModuleCard";
 import { getPortColor } from "@/components/port-colors";
 import { QUAD_MODULE_FIXED_WIDTH_CLASS } from "@/components/quad-module-dimensions";
-import { PortDetailPanel } from "@/components/PortDetailPanel";
+import { PortBasicPanel } from "@/components/PortBasicPanel";
 import {
   findClosestQuadSlotAtPointer,
   quadSlotCollision,
@@ -38,12 +37,15 @@ import {
   getPlaceholderBlock,
   insertRealQuads,
   materializePlaceholderQuad,
+  removeEmptyRealQuads,
   usesPlaceholderBlock,
 } from "@/components/quad-blocks";
 import {
   assignModuleToLane,
-  createPortAssignments,
+  buildPortAssignmentsForPort,
+  collectAssignedModuleKeys,
   ensurePortAssignments,
+  findFreeColumnsForPort,
   findModuleAssignment,
   formatPortLaneLabel,
   getPortGroupForModule,
@@ -53,10 +55,6 @@ import {
   parseQuadModuleId,
   parseQuadSlotId,
   removeAssignmentsForPort,
-  reassignPortGroupByModuleIndexOffset,
-  reassignPortGroupToQuadAnchor,
-  resolveGroupShiftTargetLane,
-  shiftPortAssignments,
   swapModuleLanes,
   unlinkModule,
 } from "@/components/dnd-utils";
@@ -66,10 +64,22 @@ import type {
   Port,
   PortAssignments,
   PortBlock,
-  PortSpeed,
   QuadModuleRef,
 } from "@/types/port-config";
-import { getPortLaneCount } from "@/types/port-config";
+import {
+  generateUniquePortName,
+  isPortConfigured,
+  isPortNameUnique,
+} from "@/types/port-config";
+import {
+  applyGroupDrop,
+  buildGroupDropPreview,
+  canGroupDropOnSlot,
+  isGroupDropNoOp,
+  planGroupDrop,
+  prepareBlocksForGroupDrop,
+  type GroupDropPreview,
+} from "@/components/group-drop";
 
 type ActiveModuleDrag = {
   anchor: QuadModuleRef;
@@ -94,9 +104,8 @@ export function PortConfigEditor() {
   const [blockCounter, setBlockCounter] = useState(1);
   const [ports, setPorts] = useState<Port[]>([]);
   const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
-  const [layoutPanelOpen, setLayoutPanelOpen] = useState(false);
   const [activeMenuItem, setActiveMenuItem] = useState<PortMenuItem | null>(null);
-  const [groupMode, setGroupMode] = useState(false);
+  const [groupMode, setGroupMode] = useState(true);
   const [portAssignments, setPortAssignments] = useState<PortAssignments>({});
   const [activeModuleDrag, setActiveModuleDrag] =
     useState<ActiveModuleDrag | null>(null);
@@ -110,15 +119,19 @@ export function PortConfigEditor() {
     DropDiagnosticEntry[]
   >([]);
   const [diagnosticPanelOpen, setDiagnosticPanelOpen] = useState(false);
+  const [groupDropPreview, setGroupDropPreview] =
+    useState<GroupDropPreview | null>(null);
 
   const activeLink = hoveredLink ?? selectedLink;
 
   const dragContextRef = useRef({
+    blocks,
+    blockCounter,
     portAssignments,
     ports,
     groupMode,
     selectedPortId,
-    layoutPanelOpen,
+    activeMenuItem: null as PortMenuItem | null,
     activeModuleDrag: null as ActiveModuleDrag | null,
   });
   const lastOverRef = useRef<string | null>(null);
@@ -130,12 +143,20 @@ export function PortConfigEditor() {
   const dragDiagnosticLogRef = useRef<DropDiagnosticEntry[]>([]);
 
   useEffect(() => {
+    if (selectedPortId) {
+      setActiveMenuItem("basic");
+    }
+  }, [selectedPortId]);
+
+  useEffect(() => {
+    dragContextRef.current.blocks = blocks;
+    dragContextRef.current.blockCounter = blockCounter;
     dragContextRef.current.portAssignments = portAssignments;
     dragContextRef.current.ports = ports;
     dragContextRef.current.groupMode = groupMode;
     dragContextRef.current.selectedPortId = selectedPortId;
-    dragContextRef.current.layoutPanelOpen = layoutPanelOpen;
-  }, [portAssignments, ports, groupMode, selectedPortId, layoutPanelOpen]);
+    dragContextRef.current.activeMenuItem = activeMenuItem;
+  }, [blocks, blockCounter, portAssignments, ports, groupMode, selectedPortId, activeMenuItem]);
 
   function appendDragDiagnostic(
     phase: string,
@@ -218,6 +239,8 @@ export function PortConfigEditor() {
       nextCounter = materialized.blockCounter;
     }
 
+    nextBlocks = removeEmptyRealQuads(nextBlocks, nextAssignments);
+
     setBlocks(nextBlocks);
     setBlockCounter(nextCounter);
     setPortAssignments(nextAssignments);
@@ -238,106 +261,111 @@ export function PortConfigEditor() {
     }
 
     setSelectedPortId(null);
-    setLayoutPanelOpen(false);
     setActiveMenuItem(null);
   }
 
-  function addPort(speed: PortSpeed) {
+  function addPort() {
     const id = crypto.randomUUID();
-    const port = { id, speed };
-
-    const laneCount = getPortLaneCount(speed);
-    const assignedKeys = new Set<string>();
-    for (const lanes of Object.values(portAssignments)) {
-      for (const type of ["rx", "tx"] as const) {
-        for (const assigned of lanes[type]) {
-          if (!assigned) continue;
-          assignedKeys.add(
-            `${assigned.blockId}:${assigned.moduleType}:${assigned.moduleIndex}`,
-          );
-        }
-      }
-    }
-
-    const getFreeModules = (
-      sourceBlocks: PortBlock[],
-      moduleType: ModuleType,
-      usedKeys: Set<string>,
-    ) => {
-      const refs: QuadModuleRef[] = [];
-
-      for (const block of sourceBlocks) {
-        for (let moduleIndex = 0; moduleIndex < MODULES_PER_QUAD; moduleIndex++) {
-          const key = `${block.id}:${moduleType}:${moduleIndex}`;
-          if (usedKeys.has(key)) continue;
-          refs.push({ blockId: block.id, moduleType, moduleIndex });
-        }
-      }
-
-      return refs;
+    const port: Port = {
+      id,
+      name: generateUniquePortName(ports),
+      ratePerLane: null,
+      laneCount: null,
+      mode: null,
+      colorIndex: 0,
     };
 
-    const freeRx = getFreeModules(blocks, "rx", assignedKeys).length;
-    const freeTx = getFreeModules(blocks, "tx", assignedKeys).length;
-    const extraNeeded = Math.max(0, laneCount - freeRx, laneCount - freeTx);
+    setPorts((prev) => [...prev, port]);
+    selectPort(id);
+  }
+
+  function renamePort(portId: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed || !isPortNameUnique(ports, trimmed, portId)) {
+      return false;
+    }
+
+    setPorts((prev) =>
+      prev.map((port) =>
+        port.id === portId ? { ...port, name: trimmed } : port,
+      ),
+    );
+    return true;
+  }
+
+  function allocateConfiguredPort(
+    nextPorts: Port[],
+    portId: string,
+    sourceBlocks: PortBlock[] = blocks,
+    sourceCounter: number = blockCounter,
+    sourceAssignments: PortAssignments = portAssignments,
+  ) {
+    const port = nextPorts.find((item) => item.id === portId);
+    if (!port || !isPortConfigured(port)) return;
+
+    const assignedKeys = collectAssignedModuleKeys(sourceAssignments, portId);
+    const laneCount = port.laneCount ?? 0;
+    const groupedAvailable = findFreeColumnsForPort(
+      sourceBlocks,
+      assignedKeys,
+      port,
+    ).length;
+    const extraNeeded = Math.max(0, laneCount - groupedAvailable);
     const quadsNeeded = Math.ceil(extraNeeded / MODULES_PER_QUAD);
 
-    let nextCounter = blockCounter;
-    let nextBlocks = insertRealQuads(blocks, quadsNeeded, nextCounter);
+    let nextCounter = sourceCounter;
+    let nextBlocks = insertRealQuads(sourceBlocks, quadsNeeded, nextCounter);
     if (quadsNeeded > 0) {
       nextCounter += quadsNeeded;
     }
 
-    const nextAssignments = ensurePortAssignments(portAssignments, port);
-    const nextPortAssignments = createPortAssignments(port);
-
-    const freeRxRefs = getFreeModules(nextBlocks, "rx", assignedKeys);
-    const freeTxRefs = getFreeModules(nextBlocks, "tx", assignedKeys);
-    for (let laneIndex = 0; laneIndex < laneCount; laneIndex++) {
-      nextPortAssignments.rx[laneIndex] = freeRxRefs[laneIndex] ?? null;
-      nextPortAssignments.tx[laneIndex] = freeTxRefs[laneIndex] ?? null;
-    }
-
+    const columns = findFreeColumnsForPort(nextBlocks, assignedKeys, port);
+    const clearedAssignments = removeAssignmentsForPort(sourceAssignments, portId);
+    const nextPortAssignments = buildPortAssignmentsForPort(port, columns);
     const mergedAssignments = {
-      ...nextAssignments,
-      [id]: nextPortAssignments,
+      ...clearedAssignments,
+      [port.id]: nextPortAssignments,
     };
 
-    setPorts((prev) => [...prev, port]);
     applyAssignmentsAndBlocks(mergedAssignments, nextBlocks, nextCounter);
-    selectPort(id);
+  }
+
+  function updatePortConfig(
+    portId: string,
+    updates: Partial<
+      Pick<Port, "ratePerLane" | "laneCount" | "mode" | "colorIndex">
+    >,
+  ) {
+    const nextPorts = ports.map((port) =>
+      port.id === portId ? { ...port, ...updates } : port,
+    );
+    const nextPort = nextPorts.find((port) => port.id === portId);
+    if (!nextPort) return;
+
+    setPorts(nextPorts);
+
+    if (!isPortConfigured(nextPort)) {
+      const nextAssignments = removeAssignmentsForPort(portAssignments, portId);
+      applyAssignmentsAndBlocks(nextAssignments);
+      return;
+    }
+
+    const layoutChanged =
+      updates.laneCount !== undefined || updates.mode !== undefined;
+
+    if (layoutChanged) {
+      allocateConfiguredPort(nextPorts, portId);
+    }
   }
 
   function selectPort(id: string) {
     setSelectedPortId(id);
-    setActiveMenuItem("layout");
-    setLayoutPanelOpen(true);
-    clearLinkHighlight();
-  }
-
-  function closeLayoutPanel() {
-    setLayoutPanelOpen(false);
-    setActiveMenuItem(null);
+    setActiveMenuItem("basic");
     clearLinkHighlight();
   }
 
   function handleMenuSelect(item: PortMenuItem) {
-    if (item === "delete") {
-      if (selectedPortId) {
-        deletePort(selectedPortId);
-      }
-      return;
-    }
-
-    if (item === "layout") {
-      const nextOpen = !layoutPanelOpen;
-      setLayoutPanelOpen(nextOpen);
-      setActiveMenuItem(nextOpen ? "layout" : null);
-      return;
-    }
-
     setActiveMenuItem(item);
-    setLayoutPanelOpen(false);
   }
 
   function clearLinkHighlight() {
@@ -446,6 +474,7 @@ export function PortConfigEditor() {
 
     setActiveModuleDrag(dragState);
     dragContextRef.current.activeModuleDrag = dragState;
+    setGroupDropPreview(null);
     lastOverRef.current = null;
     lastLoggedOverRef.current = null;
     startPointerTracking();
@@ -460,23 +489,71 @@ export function PortConfigEditor() {
       sourceLane,
       groupModules,
       selectedPortId,
-      layoutPanelOpen,
-      ports: ports.map((port) => ({ id: port.id, speed: port.speed })),
+      activeMenuItem,
+      ports: ports.map((port) => ({
+        id: port.id,
+        name: port.name,
+        configured: isPortConfigured(port),
+      })),
     });
   }
 
-  function handleDragMove(event: DragMoveEvent) {
-    rememberQuadSlotHover(
-      event.over ? String(event.over.id) : null,
-      event.collisions,
+  function updateGroupDropPreview(resolvedSlotId: string | null) {
+    const dragState = dragContextRef.current.activeModuleDrag;
+    const {
+      blocks: currentBlocks,
+      blockCounter: currentBlockCounter,
+      portAssignments: currentAssignments,
+      ports: currentPorts,
+      groupMode: currentGroupMode,
+    } = dragContextRef.current;
+
+    if (!currentGroupMode || !dragState?.isGroup || !resolvedSlotId) {
+      setGroupDropPreview(null);
+      return;
+    }
+
+    const dropSlot = parseQuadSlotId(resolvedSlotId);
+    if (!dropSlot) {
+      setGroupDropPreview(null);
+      return;
+    }
+
+    const port = currentPorts.find((item) => item.id === dragState.portId);
+    if (!port) {
+      setGroupDropPreview(null);
+      return;
+    }
+
+    const preview = buildGroupDropPreview(
+      currentBlocks,
+      currentBlockCounter,
+      currentAssignments,
+      currentPorts,
+      port,
+      dragState.anchor,
+      dragState.groupModules,
+      dropSlot,
     );
+    setGroupDropPreview(preview);
+  }
+
+  function handleDragMove(event: DragMoveEvent) {
+    const overId = event.over ? String(event.over.id) : null;
+    rememberQuadSlotHover(overId, event.collisions);
+    const resolvedSlotId =
+      resolveQuadSlotFromCollisions(overId, event.collisions) ??
+      lastOverRef.current;
+    updateGroupDropPreview(resolvedSlotId);
   }
 
   function handleDragOver(event: DragOverEvent) {
-    rememberQuadSlotHover(
-      event.over ? String(event.over.id) : null,
-      event.collisions,
-    );
+    const overId = event.over ? String(event.over.id) : null;
+    rememberQuadSlotHover(overId, event.collisions);
+    const resolvedSlotId =
+      resolveQuadSlotFromCollisions(overId, event.collisions) ??
+      lastOverRef.current;
+    updateGroupDropPreview(resolvedSlotId);
   }
 
   function handleDragCancel(event: DragCancelEvent) {
@@ -486,6 +563,7 @@ export function PortConfigEditor() {
     commitDragDiagnostics(false, true);
     dragContextRef.current.activeModuleDrag = null;
     setActiveModuleDrag(null);
+    setGroupDropPreview(null);
     lastOverRef.current = null;
     lastLoggedOverRef.current = null;
     stopPointerTracking();
@@ -493,15 +571,18 @@ export function PortConfigEditor() {
 
   function handleDragEnd(event: DragEndEvent) {
     const {
+      blocks: currentBlocks,
+      blockCounter: currentBlockCounter,
       portAssignments: currentAssignments,
       ports: currentPorts,
       groupMode: currentGroupMode,
       selectedPortId: currentSelectedPortId,
-      layoutPanelOpen: currentLayoutPanelOpen,
+      activeMenuItem: currentActiveMenuItem,
       activeModuleDrag: dragState,
     } = dragContextRef.current;
     dragContextRef.current.activeModuleDrag = null;
     setActiveModuleDrag(null);
+    setGroupDropPreview(null);
 
     const { active, collisions, delta } = event;
     const eventOverId = event.over ? String(event.over.id) : null;
@@ -542,7 +623,7 @@ export function PortConfigEditor() {
       microDrag,
       groupMode: currentGroupMode,
       selectedPortId: currentSelectedPortId,
-      layoutPanelOpen: currentLayoutPanelOpen,
+      activeMenuItem: currentActiveMenuItem,
       dragState,
       assignments: summarizePortAssignments(currentAssignments),
     });
@@ -584,21 +665,6 @@ export function PortConfigEditor() {
       return;
     }
 
-    if (moduleRefKey(moduleRef) === moduleRefKey(targetRef)) {
-      commitDragDiagnostics(false, applied);
-      return;
-    }
-
-    if (moduleRef.moduleType !== targetRef.moduleType) {
-      failureReason = "module_type_mismatch";
-      appendDragDiagnostic("reject", failureReason, {
-        draggedType: moduleRef.moduleType,
-        targetSlotType: targetRef.moduleType,
-      });
-      commitDragDiagnostics(true, applied);
-      return;
-    }
-
     const sourceAssignment = dragState.sourceAssignment;
     if (!sourceAssignment) {
       failureReason = "missing_source_assignment";
@@ -618,164 +684,80 @@ export function PortConfigEditor() {
       return;
     }
 
+    if (currentGroupMode && dragState.isGroup && dragState.groupModules.length) {
+      const prepared = prepareBlocksForGroupDrop(
+        currentBlocks,
+        currentBlockCounter,
+        dragState.anchor,
+        targetRef,
+        dragState.groupModules,
+      );
+      const plan = planGroupDrop(
+        prepared.blocks,
+        currentAssignments,
+        currentPorts,
+        port,
+        dragState.anchor,
+        dragState.groupModules,
+        targetRef,
+      );
+
+      if (!plan.ok) {
+        failureReason = plan.error;
+        appendDragDiagnostic("reject", failureReason, plan.details);
+        commitDragDiagnostics(true, applied);
+        return;
+      }
+
+      if (isGroupDropNoOp(plan.moves)) {
+        commitDragDiagnostics(false, applied);
+        return;
+      }
+
+      const nextAssignments = applyGroupDrop(
+        currentAssignments,
+        port,
+        plan.moves,
+      );
+      applyAssignmentsAndBlocks(
+        nextAssignments,
+        prepared.blocks,
+        prepared.blockCounter,
+      );
+      applied = true;
+      appendDragDiagnostic("success", "Group drop applied", {
+        columnOffset: plan.columnOffset,
+        dropSlot: targetRef,
+        moves: plan.moves.map((move) => ({
+          from: move.member,
+          to: move.target,
+          lane: move.sourceLane,
+        })),
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
+
+    if (moduleRefKey(moduleRef) === moduleRefKey(targetRef)) {
+      commitDragDiagnostics(false, applied);
+      return;
+    }
+
+    if (moduleRef.moduleType !== targetRef.moduleType) {
+      failureReason = "module_type_mismatch";
+      appendDragDiagnostic("reject", failureReason, {
+        draggedType: moduleRef.moduleType,
+        targetSlotType: targetRef.moduleType,
+      });
+      commitDragDiagnostics(true, applied);
+      return;
+    }
+
     const targetAssignment = findModuleAssignment(
       currentAssignments,
       currentPorts,
       targetRef,
     );
-
-    if (
-      currentGroupMode &&
-      dragState.isGroup &&
-      dragState.sourceLane !== undefined &&
-      dragState.portId === sourceAssignment.portId
-    ) {
-      const isCrossQuadTarget =
-        targetRef.blockId !== dragState.anchor.blockId;
-
-      if (isCrossQuadTarget) {
-        if (
-          targetAssignment &&
-          targetAssignment.portId !== sourceAssignment.portId
-        ) {
-          failureReason = "port_mismatch";
-          appendDragDiagnostic("reject", failureReason, {
-            sourcePortId: sourceAssignment.portId,
-            targetPortId: targetAssignment.portId,
-          });
-          commitDragDiagnostics(true, applied);
-          return;
-        }
-
-        const alignLane =
-          targetAssignment?.laneIndex ?? dragState.sourceLane;
-        const groupAnchor: QuadModuleRef =
-          targetRef.moduleType === "rx"
-            ? targetRef
-            : {
-                blockId: targetRef.blockId,
-                moduleType: "rx",
-                moduleIndex: targetRef.moduleIndex,
-              };
-        const reassigned = reassignPortGroupToQuadAnchor(
-          currentAssignments,
-          currentPorts,
-          port,
-          groupAnchor,
-          alignLane,
-        );
-        if (reassigned) {
-          applyAssignmentsAndBlocks(reassigned);
-          applied = true;
-          appendDragDiagnostic("success", "Group reassigned to quad", {
-            groupAnchor,
-            alignLane,
-            targetRef,
-          });
-        } else {
-          failureReason = "group_cross_quad_failed";
-          appendDragDiagnostic("reject", failureReason, {
-            groupAnchor,
-            alignLane,
-            targetRef,
-          });
-        }
-        commitDragDiagnostics(true, applied);
-        return;
-      }
-
-      const targetLane = resolveGroupShiftTargetLane(
-        dragState.anchor,
-        dragState.sourceLane,
-        targetRef,
-        targetAssignment,
-        sourceAssignment.portId,
-      );
-
-      if (targetLane === null) {
-        failureReason = "group_drop_target_unresolved";
-        appendDragDiagnostic("reject", failureReason, {
-          targetRef,
-          targetAssignment,
-          hint: "Group drops must land on a same-port lane or same-quad slot",
-        });
-        commitDragDiagnostics(true, applied);
-        return;
-      }
-
-      const moduleIndexOffset =
-        targetRef.moduleIndex - dragState.anchor.moduleIndex;
-      const sameQuadDrop =
-        !targetAssignment &&
-        dragState.anchor.blockId === targetRef.blockId &&
-        dragState.anchor.moduleType === targetRef.moduleType;
-
-      if (targetLane === dragState.sourceLane && moduleIndexOffset === 0) {
-        commitDragDiagnostics(false, applied);
-        return;
-      }
-
-      const laneCount = getPortLaneCount(port.speed);
-      if (targetLane < 0 || targetLane >= laneCount) {
-        if (sameQuadDrop && moduleIndexOffset !== 0) {
-          const reassigned = reassignPortGroupByModuleIndexOffset(
-            currentAssignments,
-            currentPorts,
-            port,
-            moduleIndexOffset,
-          );
-          if (reassigned) {
-            applyAssignmentsAndBlocks(reassigned);
-            applied = true;
-            appendDragDiagnostic("success", "Group reassigned by module index", {
-              moduleIndexOffset,
-              targetRef,
-            });
-          } else {
-            failureReason = "group_reassign_failed";
-            appendDragDiagnostic("reject", failureReason, {
-              moduleIndexOffset,
-              targetRef,
-            });
-          }
-          commitDragDiagnostics(true, applied);
-          return;
-        }
-
-        failureReason = "group_shift_out_of_range";
-        appendDragDiagnostic("reject", failureReason, {
-          sourceLane: dragState.sourceLane,
-          targetLane,
-          laneCount,
-        });
-        commitDragDiagnostics(true, applied);
-        return;
-      }
-
-      const shifted = shiftPortAssignments(
-        currentAssignments,
-        port,
-        dragState.sourceLane,
-        targetLane,
-      );
-      if (shifted) {
-        applyAssignmentsAndBlocks(shifted);
-        applied = true;
-        appendDragDiagnostic("success", "Group shift applied", {
-          sourceLane: dragState.sourceLane,
-          targetLane,
-          targetRef,
-        });
-      } else {
-        failureReason = "group_shift_failed";
-        appendDragDiagnostic("reject", failureReason, {
-          sourceLane: dragState.sourceLane,
-          targetLane,
-        });
-      }
-      commitDragDiagnostics(true, applied);
-      return;
-    }
 
     if (!targetAssignment) {
       applyAssignmentsAndBlocks(
@@ -829,7 +811,10 @@ export function PortConfigEditor() {
       lane,
       targetModule,
       sourceAssignment,
-      portSpeed: port.speed,
+      portName: port.name,
+      portRate: port.ratePerLane,
+      portLaneCount: port.laneCount,
+      portMode: port.mode,
       portLanes: summarizePortAssignments({ [port.id]: portLanes })[port.id],
     });
 
@@ -884,11 +869,9 @@ export function PortConfigEditor() {
   }
 
   const selectedPort = ports.find((port) => port.id === selectedPortId) ?? null;
-  const selectedPortColorIndex = selectedPort
-    ? ports.findIndex((port) => port.id === selectedPortId)
-    : -1;
+  const selectedPortColorIndex = selectedPort?.colorIndex ?? 0;
   const selectedPortAssignments = useMemo(() => {
-    if (!selectedPort) return null;
+    if (!selectedPort || !isPortConfigured(selectedPort)) return null;
     return ensurePortAssignments(portAssignments, selectedPort)[selectedPort.id];
   }, [portAssignments, selectedPort]);
 
@@ -920,10 +903,47 @@ export function PortConfigEditor() {
     [portAssignments, ports],
   );
 
-  const groupModuleKeys = useMemo(() => {
-    if (!activeModuleDrag?.isGroup) return new Set<string>();
-    return new Set(activeModuleDrag.groupModules.map(moduleRefKey));
-  }, [activeModuleDrag]);
+  const activeDragModuleKey = activeModuleDrag
+    ? moduleRefKey(activeModuleDrag.anchor)
+    : null;
+
+  const groupPreviewDisplay = useMemo(() => {
+    if (!groupDropPreview || !activeModuleDrag?.isGroup) return null;
+
+    const anchorKey = moduleRefKey(activeModuleDrag.anchor);
+    const sourceHiddenKeys = new Set<string>();
+    const targetPreview = new Map<
+      string,
+      {
+        member: QuadModuleRef;
+        portColorIndex: number;
+        blockLabel: string;
+      }
+    >();
+
+    for (const move of groupDropPreview.moves) {
+      const memberKey = moduleRefKey(move.member);
+      const targetKey = moduleRefKey(move.target);
+      if (memberKey === targetKey) continue;
+
+      if (memberKey !== anchorKey) {
+        sourceHiddenKeys.add(memberKey);
+      }
+
+      if (targetKey !== anchorKey) {
+        const block = groupDropPreview.previewBlocks.find(
+          (item) => item.id === move.member.blockId,
+        );
+        targetPreview.set(targetKey, {
+          member: move.member,
+          portColorIndex: activeModuleDrag.colorIndex,
+          blockLabel: block?.label ?? "",
+        });
+      }
+    }
+
+    return { sourceHiddenKeys, targetPreview };
+  }, [groupDropPreview, activeModuleDrag]);
 
   const activeGroupDrag =
     activeModuleDrag?.isGroup &&
@@ -935,6 +955,33 @@ export function PortConfigEditor() {
           isGroup: true,
         }
       : null;
+
+  const checkGroupDropOnSlot = useCallback(
+    (dropSlot: QuadModuleRef) => {
+      if (!activeModuleDrag?.isGroup || !activeModuleDrag.portId) return false;
+      const port = ports.find((item) => item.id === activeModuleDrag.portId);
+      if (!port) return false;
+      const previewBlocks = groupDropPreview?.previewBlocks ?? blocks;
+      return canGroupDropOnSlot(
+        previewBlocks,
+        blockCounter,
+        portAssignments,
+        ports,
+        port,
+        activeModuleDrag.anchor,
+        activeModuleDrag.groupModules,
+        dropSlot,
+      );
+    },
+    [
+      activeModuleDrag,
+      blocks,
+      blockCounter,
+      groupDropPreview,
+      portAssignments,
+      ports,
+    ],
+  );
 
   return (
     <DndContext
@@ -948,50 +995,99 @@ export function PortConfigEditor() {
     >
       <div className="flex h-full min-h-screen flex-col bg-zinc-100">
         <header className="border-b border-zinc-200 bg-white px-6 py-4 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-zinc-900">Interface</h1>
+          <h1 className="text-lg font-semibold text-zinc-900">
+            FPGA High-Speed Serial Interface
+          </h1>
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col gap-4 p-6">
-          <div className="flex min-h-0 flex-1 items-start gap-4">
-            <PortsPanel
-              ports={ports}
-              selectedPortId={selectedPortId}
-              onSelectPort={selectPort}
-              onAddPort={addPort}
-            />
-            <PortMenuPanel
-              activeItem={activeMenuItem}
-              onSelectItem={handleMenuSelect}
-            />
-            {layoutPanelOpen && selectedPort && selectedPortAssignments && (
-              <PortDetailPanel
-                port={selectedPort}
-                blocks={blocks}
-                colorIndex={selectedPortColorIndex}
-                assignments={selectedPortAssignments}
+          <div className="flex h-[400px] shrink-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-md">
+            <h2 className="shrink-0 bg-zinc-100 py-2.5 text-center text-sm font-semibold text-zinc-800">
+              Ports
+            </h2>
+            <div className="flex min-h-0 flex-1 items-stretch bg-zinc-100">
+              <PortsPanel
+                ports={ports}
+                selectedPortId={selectedPortId}
+                onSelectPort={selectPort}
+                onAddPort={addPort}
+                onDeletePort={deletePort}
+                onRenamePort={renamePort}
+              />
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-zinc-100">
+              <PortMenuPanel
+                activeItem={activeMenuItem}
+                onSelectItem={handleMenuSelect}
+              />
+              <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-white p-4">
+                {!selectedPort ? (
+                  <div className="flex h-full min-h-[280px] items-center justify-center text-sm text-zinc-400">
+                    Select a port to configure
+                  </div>
+                ) : activeMenuItem === "basic" ? (
+                  <PortBasicPanel
+                    port={selectedPort}
+                    blocks={blocks}
+                    assignments={selectedPortAssignments}
+                    activeLink={activeLink}
+                    groupMode={groupMode}
+                    onRateChange={(rate) =>
+                      updatePortConfig(selectedPort.id, { ratePerLane: rate })
+                    }
+                    onLaneCountChange={(laneCount) =>
+                      updatePortConfig(selectedPort.id, { laneCount })
+                    }
+                    onModeChange={(mode) =>
+                      updatePortConfig(selectedPort.id, { mode })
+                    }
+                    onColorChange={(colorIndex) =>
+                      updatePortConfig(selectedPort.id, { colorIndex })
+                    }
+                    onGroupModeChange={setGroupMode}
+                    onLinkHover={handleLinkHover}
+                    onLinkSelect={handleLinkSelect}
+                    onClearLink={clearLinkHighlight}
+                  />
+                ) : activeMenuItem === "menu1" ||
+                  activeMenuItem === "menu2" ||
+                  activeMenuItem === "menu3" ? (
+                  <div className="flex h-full min-h-[280px] items-center justify-center text-sm text-zinc-400">
+                    {activeMenuItem === "menu1"
+                      ? "Menu 1"
+                      : activeMenuItem === "menu2"
+                        ? "Menu 2"
+                        : "Menu 3"}{" "}
+                    — coming soon
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[280px] items-center justify-center text-sm text-zinc-400">
+                    Choose a tab above
+                  </div>
+                )}
+              </div>
+            </div>
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-md">
+            <h2 className="shrink-0 bg-zinc-100 py-2.5 text-center text-sm font-semibold text-zinc-800">
+              Layout
+            </h2>
+            <div className="min-h-0 flex-1 overflow-auto bg-zinc-100 p-4">
+              <BlockCanvas
+                blocks={groupDropPreview?.previewBlocks ?? blocks}
+                getModulePortColorIndex={getModulePortColorIndex}
+                getModuleLaneAssignment={getModuleLaneAssignment}
                 activeLink={activeLink}
                 groupMode={groupMode}
-                onGroupModeChange={setGroupMode}
-                onLinkHover={handleLinkHover}
-                onLinkSelect={handleLinkSelect}
-                onClearLink={clearLinkHighlight}
-                onClose={closeLayoutPanel}
+                activeGroupDrag={activeGroupDrag}
+                activeDragModuleKey={activeDragModuleKey}
+                groupPreviewDisplay={groupPreviewDisplay}
+                canGroupDropOnSlot={checkGroupDropOnSlot}
+                onModuleLinkHover={handleModuleLinkHover}
+                onModuleLinkLeave={handleModuleLinkLeave}
+                onModuleLinkSelect={handleModuleLinkSelect}
               />
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-x-auto">
-            <BlockCanvas
-              blocks={blocks}
-              getModulePortColorIndex={getModulePortColorIndex}
-              getModuleLaneAssignment={getModuleLaneAssignment}
-              activeLink={activeLink}
-              groupMode={groupMode}
-              groupModuleKeys={groupModuleKeys}
-              activeGroupDrag={activeGroupDrag}
-              onModuleLinkHover={handleModuleLinkHover}
-              onModuleLinkLeave={handleModuleLinkLeave}
-              onModuleLinkSelect={handleModuleLinkSelect}
-            />
+            </div>
           </div>
         </main>
       </div>
@@ -999,10 +1095,19 @@ export function PortConfigEditor() {
       <DragOverlay dropAnimation={null}>
         {activeModuleDrag ? (
           activeModuleDrag.isGroup ? (
-            <GroupDragOverlay
-              blocks={blocks}
-              anchor={activeModuleDrag.anchor}
-              groupModules={activeModuleDrag.groupModules}
+            <ModuleCard
+              label={formatPortLaneLabel(
+                blocks.find(
+                  (block) => block.id === activeModuleDrag.anchor.blockId,
+                )?.label ?? "",
+                activeModuleDrag.anchor.moduleType,
+                activeModuleDrag.anchor.moduleIndex,
+              )}
+              variant={activeModuleDrag.anchor.moduleType}
+              orientation="vertical"
+              grow={false}
+              className={QUAD_MODULE_FIXED_WIDTH_CLASS}
+              colorClassName={getPortColor(activeModuleDrag.colorIndex)}
             />
           ) : (
             <ModuleCard

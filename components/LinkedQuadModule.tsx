@@ -15,7 +15,7 @@ type LinkedQuadModuleProps = {
   portColorIndex: number;
   isLinked?: boolean;
   groupMode?: boolean;
-  isInGroupDrag?: boolean;
+  hideDuringDrag?: boolean;
   onLinkHover?: () => void;
   onLinkLeave?: () => void;
   onLinkSelect?: () => void;
@@ -29,7 +29,7 @@ export function LinkedQuadModule({
   portColorIndex,
   isLinked = false,
   groupMode = false,
-  isInGroupDrag = false,
+  hideDuringDrag = false,
   onLinkHover,
   onLinkLeave,
   onLinkSelect,
@@ -48,7 +48,7 @@ export function LinkedQuadModule({
 
   const label = formatPortLaneLabel(blockLabel, moduleType, moduleIndex);
   const moduleColor = getModuleLinkColor(portColorIndex, true, isLinked);
-  const isHiddenDuringDrag = isDragging || isInGroupDrag;
+  const isHiddenDuringDrag = isDragging || hideDuringDrag;
 
   return (
     <div

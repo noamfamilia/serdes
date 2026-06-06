@@ -1,3 +1,4 @@
+import { getRealBlocks, insertRealQuads } from "@/components/quad-blocks";
 import type {
   ModuleLinkHighlight,
   ModuleType,
@@ -6,7 +7,85 @@ import type {
   PortBlock,
   QuadModuleRef,
 } from "@/types/port-config";
-import { getPortLaneCount } from "@/types/port-config";
+import { getPortLaneCount, isPortConfigured } from "@/types/port-config";
+
+export const MODULES_PER_QUAD = 4;
+
+export function globalColumnFromModule(
+  blocks: PortBlock[],
+  module: QuadModuleRef,
+): number | null {
+  const realBlocks = getRealBlocks(blocks);
+  const quadIndex = realBlocks.findIndex((block) => block.id === module.blockId);
+  if (quadIndex === -1) return null;
+  if (module.moduleIndex < 0 || module.moduleIndex >= MODULES_PER_QUAD) return null;
+  return quadIndex * MODULES_PER_QUAD + module.moduleIndex;
+}
+
+export function moduleRefFromGlobalColumn(
+  blocks: PortBlock[],
+  globalColumn: number,
+  moduleType: ModuleType,
+): QuadModuleRef | null {
+  if (globalColumn < 0) return null;
+
+  const realBlocks = getRealBlocks(blocks);
+  const quadIndex = Math.floor(globalColumn / MODULES_PER_QUAD);
+  const moduleIndex = globalColumn % MODULES_PER_QUAD;
+  if (quadIndex < 0 || quadIndex >= realBlocks.length) return null;
+
+  return {
+    blockId: realBlocks[quadIndex].id,
+    moduleType,
+    moduleIndex,
+  };
+}
+
+export function globalColumnOffset(
+  blocks: PortBlock[],
+  anchor: QuadModuleRef,
+  dropSlot: QuadModuleRef,
+): number | null {
+  const anchorColumn = globalColumnFromModule(blocks, anchor);
+  const dropColumn = globalColumnFromModule(blocks, dropSlot);
+  if (anchorColumn === null || dropColumn === null) return null;
+  return dropColumn - anchorColumn;
+}
+
+export function maxGroupDropTargetColumn(
+  blocks: PortBlock[],
+  anchor: QuadModuleRef,
+  dropSlot: QuadModuleRef,
+  groupModules: QuadModuleRef[],
+): number | null {
+  const offset = globalColumnOffset(blocks, anchor, dropSlot);
+  if (offset === null) return null;
+
+  let maxColumn = -1;
+  for (const member of groupModules) {
+    const memberColumn = globalColumnFromModule(blocks, member);
+    if (memberColumn === null) return null;
+    maxColumn = Math.max(maxColumn, memberColumn + offset);
+  }
+
+  return maxColumn;
+}
+
+export function ensureBlocksForGlobalColumn(
+  blocks: PortBlock[],
+  blockCounter: number,
+  maxGlobalColumn: number,
+): { blocks: PortBlock[]; blockCounter: number } {
+  const realCount = getRealBlocks(blocks).length;
+  const requiredQuads = Math.ceil((maxGlobalColumn + 1) / MODULES_PER_QUAD);
+  const quadsNeeded = Math.max(0, requiredQuads - realCount);
+  if (quadsNeeded === 0) {
+    return { blocks, blockCounter };
+  }
+
+  const nextBlocks = insertRealQuads(blocks, quadsNeeded, blockCounter);
+  return { blocks: nextBlocks, blockCounter: blockCounter + quadsNeeded };
+}
 
 export function quadModuleId(
   blockId: string,
@@ -74,19 +153,150 @@ export function moduleRefKey(ref: QuadModuleRef) {
 }
 
 export function createPortAssignments(port: Port): PortAssignments[string] {
-  const laneCount = getPortLaneCount(port.speed);
+  const laneCount = getPortLaneCount(port);
   return {
     rx: Array.from({ length: laneCount }, () => null),
     tx: Array.from({ length: laneCount }, () => null),
   };
 }
 
+export function findFreeGroupedQuadColumns(
+  blocks: PortBlock[],
+  assignedKeys: Set<string>,
+  maxCount = Infinity,
+): Array<{ blockId: string; moduleIndex: number }> {
+  const columns: Array<{ blockId: string; moduleIndex: number }> = [];
+  const realBlocks = getRealBlocks(blocks);
+  const totalColumns = realBlocks.length * MODULES_PER_QUAD;
+
+  for (let globalColumn = 0; globalColumn < totalColumns; globalColumn++) {
+    const rxRef = moduleRefFromGlobalColumn(blocks, globalColumn, "rx");
+    const txRef = moduleRefFromGlobalColumn(blocks, globalColumn, "tx");
+    if (!rxRef || !txRef) continue;
+
+    if (assignedKeys.has(moduleRefKey(rxRef)) || assignedKeys.has(moduleRefKey(txRef))) {
+      continue;
+    }
+
+    columns.push({ blockId: rxRef.blockId, moduleIndex: rxRef.moduleIndex });
+    if (columns.length >= maxCount) return columns;
+  }
+
+  return columns;
+}
+
+export function findFreeModuleColumns(
+  blocks: PortBlock[],
+  assignedKeys: Set<string>,
+  moduleType: ModuleType,
+  maxCount = Infinity,
+): Array<{ blockId: string; moduleIndex: number }> {
+  const columns: Array<{ blockId: string; moduleIndex: number }> = [];
+  const realBlocks = getRealBlocks(blocks);
+  const totalColumns = realBlocks.length * MODULES_PER_QUAD;
+
+  for (let globalColumn = 0; globalColumn < totalColumns; globalColumn++) {
+    const ref = moduleRefFromGlobalColumn(blocks, globalColumn, moduleType);
+    if (!ref) continue;
+    if (assignedKeys.has(moduleRefKey(ref))) continue;
+
+    columns.push({ blockId: ref.blockId, moduleIndex: ref.moduleIndex });
+    if (columns.length >= maxCount) return columns;
+  }
+
+  return columns;
+}
+
+export function findFreeColumnsForPort(
+  blocks: PortBlock[],
+  assignedKeys: Set<string>,
+  port: Port,
+): Array<{ blockId: string; moduleIndex: number }> {
+  const laneCount = getPortLaneCount(port);
+  if (!port.mode || laneCount === 0) return [];
+
+  if (port.mode === "duplex") {
+    return findFreeGroupedQuadColumns(blocks, assignedKeys, laneCount);
+  }
+
+  return findFreeModuleColumns(
+    blocks,
+    assignedKeys,
+    port.mode === "simplex-rx" ? "rx" : "tx",
+    laneCount,
+  );
+}
+
+export function collectAssignedModuleKeys(
+  assignments: PortAssignments,
+  excludePortId?: string,
+): Set<string> {
+  const keys = new Set<string>();
+
+  for (const [portId, lanes] of Object.entries(assignments)) {
+    if (portId === excludePortId) continue;
+
+    for (const type of ["rx", "tx"] as const) {
+      for (const assigned of lanes[type]) {
+        if (!assigned) continue;
+        keys.add(moduleRefKey(assigned));
+      }
+    }
+  }
+
+  return keys;
+}
+
+export function buildPortAssignmentsForPort(
+  port: Port,
+  columns: Array<{ blockId: string; moduleIndex: number }>,
+): PortAssignments[string] {
+  const laneCount = getPortLaneCount(port);
+  const assignments = createPortAssignments(port);
+  const mode = port.mode;
+  if (!mode) return assignments;
+
+  for (let laneIndex = 0; laneIndex < laneCount; laneIndex++) {
+    const column = columns[laneIndex];
+    if (!column) continue;
+
+    if (mode === "simplex-rx" || mode === "duplex") {
+      assignments.rx[laneIndex] = {
+        blockId: column.blockId,
+        moduleType: "rx",
+        moduleIndex: column.moduleIndex,
+      };
+    }
+
+    if (mode === "simplex-tx" || mode === "duplex") {
+      assignments.tx[laneIndex] = {
+        blockId: column.blockId,
+        moduleType: "tx",
+        moduleIndex: column.moduleIndex,
+      };
+    }
+  }
+
+  return assignments;
+}
+
+export function buildPortAssignmentsFromGroupedColumns(
+  port: Port,
+  columns: Array<{ blockId: string; moduleIndex: number }>,
+): PortAssignments[string] {
+  return buildPortAssignmentsForPort(port, columns);
+}
+
 export function ensurePortAssignments(
   assignments: PortAssignments,
   port: Port,
 ): PortAssignments {
+  if (!isPortConfigured(port)) {
+    return assignments;
+  }
+
   const existing = assignments[port.id];
-  const laneCount = getPortLaneCount(port.speed);
+  const laneCount = getPortLaneCount(port);
 
   if (existing && existing.rx.length === laneCount) {
     return assignments;
@@ -255,7 +465,7 @@ export function reassignPortGroupByModuleIndexOffset(
   if (moduleIndexOffset === 0) return assignments;
 
   const lanes = ensurePortAssignments(assignments, port)[port.id];
-  const laneCount = getPortLaneCount(port.speed);
+  const laneCount = getPortLaneCount(port);
 
   for (let laneIndex = 0; laneIndex < laneCount; laneIndex++) {
     for (const type of ["rx", "tx"] as const) {
@@ -313,7 +523,7 @@ export function shiftPortAssignments(
   if (offset === 0) return assignments;
 
   const lanes = ensurePortAssignments(assignments, port)[port.id];
-  const laneCount = getPortLaneCount(port.speed);
+  const laneCount = getPortLaneCount(port);
   const newRx: (QuadModuleRef | null)[] = Array.from(
     { length: laneCount },
     () => null,
@@ -352,7 +562,7 @@ export function assignPortGroupFromAnchor(
   anchor: QuadModuleRef,
   targetLane: number,
 ): PortAssignments | null {
-  const laneCount = getPortLaneCount(port.speed);
+  const laneCount = getPortLaneCount(port);
   const next = ensurePortAssignments(assignments, port);
   const current = next[port.id];
 
@@ -451,8 +661,9 @@ export function formatPortLaneLabel(
   moduleType: ModuleType,
   moduleIndex: number,
 ) {
-  const quad = blockLabel.replace(/\s/g, "");
-  return `${quad}/${moduleType.toUpperCase()}${moduleIndex + 1}`;
+  const quadNumber = blockLabel.match(/\d+/)?.[0];
+  const quad = quadNumber ? `Q${quadNumber}` : blockLabel.replace(/\s/g, "");
+  return `${quad}.${moduleType.toUpperCase()}${moduleIndex + 1}`;
 }
 
 export function getPortLaneLabel(
@@ -486,8 +697,9 @@ export function findModuleAssignment(
 } | null {
   const key = moduleRefKey(ref);
 
-  for (let colorIndex = 0; colorIndex < ports.length; colorIndex++) {
-    const port = ports[colorIndex];
+  for (const port of ports) {
+    if (!isPortConfigured(port)) continue;
+
     const lanes = assignments[port.id];
     if (!lanes) continue;
 
@@ -496,7 +708,12 @@ export function findModuleAssignment(
         (assigned) => assigned && moduleRefKey(assigned) === key,
       );
       if (laneIndex !== -1) {
-        return { portId: port.id, colorIndex, moduleType: type, laneIndex };
+        return {
+          portId: port.id,
+          colorIndex: port.colorIndex,
+          moduleType: type,
+          laneIndex,
+        };
       }
     }
   }

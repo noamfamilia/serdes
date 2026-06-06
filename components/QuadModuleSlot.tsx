@@ -3,7 +3,8 @@
 import { useDndContext, useDroppable } from "@dnd-kit/core";
 import { ModuleCard } from "@/components/ModuleCard";
 import { LinkedQuadModule } from "@/components/LinkedQuadModule";
-import { moduleRefKey, quadSlotId } from "@/components/dnd-utils";
+import { formatPortLaneLabel, moduleRefKey, quadSlotId } from "@/components/dnd-utils";
+import { getModuleLinkColor } from "@/components/port-colors";
 import { QUAD_MODULE_FIXED_WIDTH_CLASS } from "@/components/quad-module-dimensions";
 import type { ModuleType, QuadModuleRef } from "@/types/port-config";
 
@@ -34,7 +35,19 @@ type QuadModuleSlotProps = {
   isLinked?: boolean;
   groupMode?: boolean;
   activeGroupDrag?: ActiveGroupDrag | null;
-  isInGroupDrag?: boolean;
+  canGroupDropOnSlot?: (dropSlot: QuadModuleRef) => boolean;
+  activeDragModuleKey?: string | null;
+  groupPreviewDisplay?: {
+    sourceHiddenKeys: Set<string>;
+    targetPreview: Map<
+      string,
+      {
+        member: QuadModuleRef;
+        portColorIndex: number;
+        blockLabel: string;
+      }
+    >;
+  } | null;
   onLinkHover?: (module: QuadModuleRef) => void;
   onLinkLeave?: () => void;
   onLinkSelect?: (module: QuadModuleRef) => void;
@@ -52,7 +65,9 @@ export function QuadModuleSlot({
   isLinked = false,
   groupMode = false,
   activeGroupDrag = null,
-  isInGroupDrag = false,
+  canGroupDropOnSlot,
+  activeDragModuleKey = null,
+  groupPreviewDisplay = null,
   onLinkHover,
   onLinkLeave,
   onLinkSelect,
@@ -105,26 +120,25 @@ export function QuadModuleSlot({
     isAssigned &&
     activeModuleKey !== null &&
     !isSelf;
-  const canDropGroupShift =
+  const canDropGroup =
     isGroupAssignedDrag &&
-    assignedLaneIndex !== undefined &&
-    activeGroupDrag.sourceLane !== assignedLaneIndex;
-  const canDropCrossQuadGroup =
-    isGroupAssignedDrag &&
-    activeData?.moduleType === moduleType &&
     !isSelf &&
-    activeData?.blockId !== blockId;
+    (canGroupDropOnSlot?.(moduleRef) ?? false);
   const canDrop =
     canDropAssignedToUnlinked ||
     canDropAssignedSwap ||
-    canDropGroupShift ||
-    canDropCrossQuadGroup;
+    canDropGroup;
 
   const highlightClassName = isOver && canDrop
     ? "ring-2 ring-violet-400 ring-inset"
     : canDrop
       ? "ring-1 ring-violet-200 ring-inset"
       : undefined;
+
+  const previewEntry = groupPreviewDisplay?.targetPreview.get(slotModuleKey);
+  const hideAssignedModule =
+    activeDragModuleKey === slotModuleKey ||
+    (groupPreviewDisplay?.sourceHiddenKeys.has(slotModuleKey) ?? false);
 
   return (
     <div
@@ -150,11 +164,31 @@ export function QuadModuleSlot({
           portColorIndex={portColorIndex}
           isLinked={isLinked}
           groupMode={groupMode}
-          isInGroupDrag={isInGroupDrag}
+          hideDuringDrag={hideAssignedModule}
           onLinkHover={() => onLinkHover?.(moduleRef)}
           onLinkLeave={onLinkLeave}
           onLinkSelect={() => onLinkSelect?.(moduleRef)}
         />
+      )}
+      {previewEntry && (
+        <div className="pointer-events-none absolute inset-0 z-10">
+          <ModuleCard
+            label={formatPortLaneLabel(
+              previewEntry.blockLabel,
+              previewEntry.member.moduleType,
+              previewEntry.member.moduleIndex,
+            )}
+            variant={previewEntry.member.moduleType}
+            orientation="vertical"
+            grow={false}
+            className={`h-full ${QUAD_MODULE_FIXED_WIDTH_CLASS} opacity-90 ring-2 ring-violet-300 ring-inset`}
+            colorClassName={getModuleLinkColor(
+              previewEntry.portColorIndex,
+              true,
+              false,
+            )}
+          />
+        </div>
       )}
     </div>
   );

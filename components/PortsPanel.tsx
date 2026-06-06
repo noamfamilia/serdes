@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
-import { PORT_LIST_DEFAULT, PORT_LIST_SELECTED } from "@/components/port-colors";
-import { PORT_SPEEDS, type Port, type PortSpeed } from "@/types/port-config";
+import { useState } from "react";
+import { DeletePortDialog } from "@/components/DeletePortDialog";
+import type { Port } from "@/types/port-config";
 
 type PortsPanelProps = {
   ports: Port[];
   selectedPortId: string | null;
   onSelectPort: (id: string) => void;
-  onAddPort: (speed: PortSpeed) => void;
+  onAddPort: () => void;
+  onDeletePort: (id: string) => void;
+  onRenamePort: (id: string, name: string) => boolean;
 };
 
 export function PortsPanel({
@@ -16,57 +18,144 @@ export function PortsPanel({
   selectedPortId,
   onSelectPort,
   onAddPort,
+  onDeletePort,
+  onRenamePort,
 }: PortsPanelProps) {
-  const [selectValue, setSelectValue] = useState("");
+  const [pendingDeletePort, setPendingDeletePort] = useState<Port | null>(null);
+  const [renamingPortId, setRenamingPortId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
 
-  function handleSelectChange(event: ChangeEvent<HTMLSelectElement>) {
-    const speed = event.target.value as PortSpeed;
-    if (!PORT_SPEEDS.includes(speed)) return;
+  function handleConfirmDelete() {
+    if (!pendingDeletePort) return;
+    onDeletePort(pendingDeletePort.id);
+    setPendingDeletePort(null);
+  }
 
-    onAddPort(speed);
-    setSelectValue("");
+  function startRename(port: Port) {
+    setRenamingPortId(port.id);
+    setRenameValue(port.name);
+    setRenameError(null);
+  }
+
+  function cancelRename() {
+    setRenamingPortId(null);
+    setRenameValue("");
+    setRenameError(null);
+  }
+
+  function commitRename(portId: string) {
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setRenameError("Name is required");
+      return;
+    }
+
+    const ok = onRenamePort(portId, trimmed);
+    if (!ok) {
+      setRenameError("Name must be unique");
+      return;
+    }
+
+    cancelRename();
   }
 
   return (
-    <div className="flex w-[180px] shrink-0 flex-col rounded-2xl border border-zinc-200 bg-white p-3 shadow-md">
-      <h2 className="shrink-0 py-0.5 text-center text-sm font-semibold text-zinc-800">
-        Ports list
-      </h2>
-
-      <div className="mt-2 flex flex-col gap-2">
-        {ports.map((port) => {
-          const isSelected = port.id === selectedPortId;
-
-          return (
-            <button
-              key={port.id}
-              type="button"
-              onClick={() => onSelectPort(port.id)}
-              className={`flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border text-xs font-medium shadow-sm transition-colors hover:shadow-md ${
-                isSelected ? PORT_LIST_SELECTED : PORT_LIST_DEFAULT
-              }`}
-            >
-              {port.speed}
-            </button>
-          );
-        })}
-
-        <select
-          value={selectValue}
-          onChange={handleSelectChange}
-          className="w-full shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-2 text-xs font-medium text-zinc-700 outline-none transition-colors hover:border-zinc-300 focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
-          aria-label="Add port"
+    <>
+      <div className="flex h-full w-max shrink-0 flex-col bg-zinc-100 pb-3 pl-3 pr-0 pt-3">
+        <button
+          type="button"
+          onClick={onAddPort}
+          className="shrink-0 cursor-pointer whitespace-nowrap text-left text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
         >
-          <option value="" disabled>
-            Add port
-          </option>
-          {PORT_SPEEDS.map((speed) => (
-            <option key={speed} value={speed}>
-              {speed}
-            </option>
-          ))}
-        </select>
+          Add port
+        </button>
+
+        <nav
+          className="mt-5 inline-grid w-max grid-cols-1 gap-1"
+          aria-label="Ports"
+        >
+          <div
+            aria-hidden
+            className="pointer-events-none flex h-0 min-h-0 overflow-hidden opacity-0"
+          >
+            <span className="flex-1 whitespace-nowrap py-2 pl-3 pr-1">Port1</span>
+            <span className="w-7 shrink-0" />
+            <span className="w-7 shrink-0 pr-1" />
+          </div>
+          {ports.map((port) => {
+            const isSelected = port.id === selectedPortId;
+            const isRenaming = renamingPortId === port.id;
+
+            return (
+              <div
+                key={port.id}
+                className={`flex min-h-9 w-full items-stretch whitespace-nowrap rounded-l-lg rounded-r-none text-xs font-medium transition-colors ${
+                  isSelected
+                    ? "relative z-10 bg-white text-zinc-900"
+                    : "mb-0.5 bg-zinc-300 text-zinc-700 hover:bg-zinc-400 hover:text-zinc-900"
+                }`}
+              >
+                {isRenaming ? (
+                  <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-1 pl-3 pr-1">
+                    <input
+                      value={renameValue}
+                      onChange={(event) => {
+                        setRenameValue(event.target.value);
+                        setRenameError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") commitRename(port.id);
+                        if (event.key === "Escape") cancelRename();
+                      }}
+                      className="w-full rounded-md border border-zinc-200 px-2 py-1 text-xs outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
+                      autoFocus
+                    />
+                    {renameError && (
+                      <span className="text-[10px] text-red-600">{renameError}</span>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onSelectPort(port.id)}
+                    className="flex flex-1 cursor-pointer items-center py-2 pl-3 pr-1 text-left"
+                  >
+                    {port.name}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    isRenaming ? commitRename(port.id) : startRename(port)
+                  }
+                  className="flex w-7 shrink-0 cursor-pointer items-center justify-center text-zinc-400 transition-colors hover:text-zinc-700"
+                  aria-label={
+                    isRenaming ? `Save ${port.name} rename` : `Rename ${port.name}`
+                  }
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingDeletePort(port)}
+                  className="flex w-7 shrink-0 cursor-pointer items-center justify-center pr-1 text-sm text-zinc-400 transition-colors hover:text-red-600"
+                  aria-label={`Delete ${port.name}`}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </nav>
       </div>
-    </div>
+
+      <DeletePortDialog
+        port={pendingDeletePort}
+        open={pendingDeletePort !== null}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setPendingDeletePort(null)}
+      />
+    </>
   );
 }

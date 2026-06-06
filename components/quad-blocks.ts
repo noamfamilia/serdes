@@ -82,6 +82,35 @@ export function materializePlaceholderQuad(
   };
 }
 
+export function getAssignedBlockIds(assignments: PortAssignments): Set<string> {
+  const ids = new Set<string>();
+
+  for (const lanes of Object.values(assignments)) {
+    for (const type of ["rx", "tx"] as const) {
+      for (const module of lanes[type]) {
+        if (module) {
+          ids.add(module.blockId);
+        }
+      }
+    }
+  }
+
+  return ids;
+}
+
+export function removeEmptyRealQuads(
+  blocks: PortBlock[],
+  assignments: PortAssignments,
+): PortBlock[] {
+  const assignedBlockIds = getAssignedBlockIds(assignments);
+  const placeholder = getPlaceholderBlock(blocks) ?? createPlaceholderQuad();
+  const activeRealBlocks = getRealBlocks(blocks).filter((block) =>
+    assignedBlockIds.has(block.id),
+  );
+
+  return renumberRealQuads([...activeRealBlocks, placeholder]);
+}
+
 export function usesPlaceholderBlock(
   assignments: PortAssignments,
   placeholderId: string,

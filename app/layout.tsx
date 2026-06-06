@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Interface",
+  title: "FPGA High-Speed Serial Interface",
   description: "Graphical tool to configure serdes port blocks",
 };
 

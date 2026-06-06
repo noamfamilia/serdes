@@ -1,15 +1,29 @@
-export const PORT_COLORS = [
+export const PORT_COLOR_LABELS = [
+  "Grey",
+  "Emerald",
+  "Sky",
+  "Violet",
+  "Amber",
+  "Rose",
+  "Cyan",
+  "Orange",
+] as const;
+
+export const PORT_PICKER_COLORS = [
+  "border-zinc-300 bg-zinc-200 text-zinc-800",
   "border-emerald-200 bg-emerald-50 text-emerald-900",
   "border-sky-200 bg-sky-50 text-sky-900",
   "border-violet-200 bg-violet-50 text-violet-900",
   "border-amber-200 bg-amber-50 text-amber-900",
-  "border-rose-200 bg-rose-50 text-rose-900",
+  "border-rose-200 bg-rose-50 text-rose-950",
   "border-cyan-200 bg-cyan-50 text-cyan-900",
   "border-orange-200 bg-orange-50 text-orange-900",
-  "border-indigo-200 bg-indigo-50 text-indigo-900",
 ] as const;
 
+export const PORT_COLORS = PORT_PICKER_COLORS;
+
 export const PORT_COLORS_INTENSE = [
+  "border-zinc-400 bg-zinc-300 text-zinc-950",
   "border-emerald-300 bg-emerald-100 text-emerald-950",
   "border-sky-300 bg-sky-100 text-sky-950",
   "border-violet-300 bg-violet-100 text-violet-950",
@@ -17,7 +31,6 @@ export const PORT_COLORS_INTENSE = [
   "border-rose-300 bg-rose-100 text-rose-950",
   "border-cyan-300 bg-cyan-100 text-cyan-950",
   "border-orange-300 bg-orange-100 text-orange-950",
-  "border-indigo-300 bg-indigo-100 text-indigo-950",
 ] as const;
 
 export const MODULE_UNASSIGNED_INTENSE =

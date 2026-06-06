@@ -7,7 +7,7 @@ import type {
   ModuleLinkHighlight,
   QuadModuleRef,
 } from "@/types/port-config";
-import { isModuleLinked, moduleRefKey } from "@/components/dnd-utils";
+import { isModuleLinked } from "@/components/dnd-utils";
 import { ChannelBar } from "./ChannelBar";
 import { ClockingDialog } from "./ClockingDialog";
 import { ModuleCard } from "./ModuleCard";
@@ -27,12 +27,24 @@ type PortBlockProps = {
   ) => { portId: string; laneIndex: number } | undefined;
   activeLink?: ModuleLinkHighlight | null;
   groupMode?: boolean;
-  groupModuleKeys?: Set<string>;
   activeGroupDrag?: {
     portId: string;
     sourceLane: number;
     isGroup: boolean;
   } | null;
+  activeDragModuleKey?: string | null;
+  groupPreviewDisplay?: {
+    sourceHiddenKeys: Set<string>;
+    targetPreview: Map<
+      string,
+      {
+        member: QuadModuleRef;
+        portColorIndex: number;
+        blockLabel: string;
+      }
+    >;
+  } | null;
+  canGroupDropOnSlot?: (dropSlot: QuadModuleRef) => boolean;
   onModuleLinkHover?: (module: QuadModuleRef) => void;
   onModuleLinkLeave?: () => void;
   onModuleLinkSelect?: (module: QuadModuleRef) => void;
@@ -44,8 +56,10 @@ export function PortBlock({
   getModuleLaneAssignment,
   activeLink = null,
   groupMode = false,
-  groupModuleKeys,
   activeGroupDrag = null,
+  activeDragModuleKey = null,
+  groupPreviewDisplay = null,
+  canGroupDropOnSlot,
   onModuleLinkHover,
   onModuleLinkLeave,
   onModuleLinkSelect,
@@ -93,7 +107,9 @@ export function PortBlock({
         isLinked={isModuleLinked(activeLink, moduleRef)}
         groupMode={groupMode}
         activeGroupDrag={activeGroupDrag}
-        isInGroupDrag={groupModuleKeys?.has(moduleRefKey(moduleRef))}
+        activeDragModuleKey={activeDragModuleKey}
+        groupPreviewDisplay={groupPreviewDisplay}
+        canGroupDropOnSlot={canGroupDropOnSlot}
         onLinkHover={onModuleLinkHover}
         onLinkLeave={onModuleLinkLeave}
         onLinkSelect={onModuleLinkSelect}
